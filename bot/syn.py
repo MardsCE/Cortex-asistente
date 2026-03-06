@@ -1,4 +1,3 @@
-import asyncio
 from telegram import Update
 from telegram.ext import (
     Application,
@@ -11,68 +10,76 @@ from config.settings import settings
 from services.openrouter_service import openrouter_service
 
 
-async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
+async def inicio(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(
         "Hola, soy *Syn*, el asistente de Cortex.\n\n"
-        "Escribe cualquier mensaje y te respondere.\n\n"
+        "Escribe cualquier mensaje y te respondo.\n\n"
         "Comandos:\n"
-        "/status - Estado del sistema\n"
-        "/ping - Verificar latencia\n"
-        "/clear - Limpiar historial de conversacion",
+        "/estado - Estado del sistema\n"
+        "/limpiar - Limpiar historial\n"
+        "/ayuda - Ver comandos",
         parse_mode="Markdown",
     )
 
 
-async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
+async def mensaje(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = str(update.effective_user.id)
-    message = update.message.text
+    texto = update.message.text
 
     await context.bot.send_chat_action(
         chat_id=update.effective_chat.id, action="typing"
     )
 
     try:
-        response = await openrouter_service.ask(message, user_id)
+        respuesta = await openrouter_service.ask(texto, user_id)
     except Exception as e:
-        response = f"Error al contactar la IA: {e}"
+        respuesta = f"Error al contactar la IA: {e}"
 
-    # Telegram tiene limite de 4096 caracteres por mensaje
-    if len(response) > 4096:
-        for i in range(0, len(response), 4096):
-            await update.message.reply_text(response[i : i + 4096])
+    if len(respuesta) > 4096:
+        for i in range(0, len(respuesta), 4096):
+            await update.message.reply_text(respuesta[i : i + 4096])
     else:
-        await update.message.reply_text(response)
+        await update.message.reply_text(respuesta)
 
 
-async def status_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    text = (
+async def estado(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    texto = (
         "*Estado de Cortex*\n\n"
-        "Bot: Online\n"
-        "IA: Activa\n"
+        "Bot: Activo\n"
+        "IA: Conectada\n"
         f"Modelo: `{settings.OPENROUTER_MODEL}`\n\n"
-        "_Cortex - Plataforma de asistencia operativa_"
+        "_Cortex - Asistencia operativa con IA_"
     )
-    await update.message.reply_text(text, parse_mode="Markdown")
+    await update.message.reply_text(texto, parse_mode="Markdown")
 
 
-async def ping_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await update.message.reply_text("Pong!")
-
-
-async def clear_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+async def limpiar(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = str(update.effective_user.id)
     openrouter_service.histories.pop(user_id, None)
-    await update.message.reply_text("Historial de conversacion limpiado.")
+    await update.message.reply_text("Historial limpiado.")
+
+
+async def ayuda(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    await update.message.reply_text(
+        "*Comandos de Syn*\n\n"
+        "/inicio - Mensaje de bienvenida\n"
+        "/estado - Estado del sistema\n"
+        "/limpiar - Limpiar historial\n"
+        "/ayuda - Ver este mensaje\n\n"
+        "O simplemente escribe lo que necesites.",
+        parse_mode="Markdown",
+    )
 
 
 def run_bot():
     app = Application.builder().token(settings.TELEGRAM_TOKEN).build()
 
-    app.add_handler(CommandHandler("start", start))
-    app.add_handler(CommandHandler("status", status_command))
-    app.add_handler(CommandHandler("ping", ping_command))
-    app.add_handler(CommandHandler("clear", clear_command))
-    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
+    app.add_handler(CommandHandler("start", inicio))
+    app.add_handler(CommandHandler("inicio", inicio))
+    app.add_handler(CommandHandler("estado", estado))
+    app.add_handler(CommandHandler("limpiar", limpiar))
+    app.add_handler(CommandHandler("ayuda", ayuda))
+    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, mensaje))
 
     print("[Syn] Bot de Telegram iniciado.")
     app.run_polling(allowed_updates=Update.ALL_TYPES)

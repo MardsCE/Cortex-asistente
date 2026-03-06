@@ -93,10 +93,10 @@ Cada instancia tiene su propio volumen Docker para datos persistentes (DB, archi
 
 | Comando | Descripcion |
 |---|---|
-| `/start` | Mensaje de bienvenida |
-| `/status` | Estado del sistema |
-| `/ping` | Verificar que el bot responde |
-| `/clear` | Limpiar historial de conversacion |
+| `/inicio` | Mensaje de bienvenida |
+| `/estado` | Estado del sistema |
+| `/limpiar` | Limpiar historial |
+| `/ayuda` | Ver comandos |
 | _(cualquier texto)_ | Hablar con Syn directamente |
 
 ## Endpoints API

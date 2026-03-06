@@ -36,7 +36,7 @@ if [ ! -f .env ]; then
     echo "    nano .env"
     echo ""
     echo "    Variables requeridas:"
-    echo "      DISCORD_TOKEN=tu_token_aqui"
+    echo "      TELEGRAM_TOKEN=tu_token_aqui"
     echo "      OPENROUTER_API_KEY=tu_api_key_aqui"
     echo ""
 else
