@@ -1,0 +1,26 @@
+services:
+  # Instancia principal
+  cortex-1:
+    build: .
+    container_name: cortex-1
+    env_file: .env
+    ports:
+      - "8001:8000"
+    volumes:
+      - cortex-1-data:/app/data
+    restart: unless-stopped
+
+  # Segunda instancia (duplicar y cambiar tokens en .env.instance2)
+  # cortex-2:
+  #   build: .
+  #   container_name: cortex-2
+  #   env_file: .env.instance2
+  #   ports:
+  #     - "8002:8000"
+  #   volumes:
+  #     - cortex-2-data:/app/data
+  #   restart: unless-stopped
+
+volumes:
+  cortex-1-data:
+  # cortex-2-data:

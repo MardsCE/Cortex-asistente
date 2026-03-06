@@ -1,96 +1,103 @@
 # Cortex-asistente
 
-Plataforma de asistencia operativa con IA. Bot de Discord llamado **Syn** que responde usando OpenRouter API, y una API REST con FastAPI.
+Plataforma de asistencia operativa con IA. Bot de Telegram llamado **Syn** que responde usando OpenRouter API, y una API REST con FastAPI. Preparado para correr en Docker con multiples instancias.
 
 ## Stack
 
 - Python 3.11+
-- FastAPI + Uvicorn (backend / API REST)
-- discord.py (bot de Discord "Syn")
+- FastAPI + Uvicorn (API REST)
+- python-telegram-bot (bot de Telegram "Syn")
 - OpenRouter API (IA, modelo `anthropic/claude-sonnet-4-20250514`)
 - SQLite + SQLAlchemy (preparado para futuro)
-- python-dotenv para variables de entorno
+- Docker + Docker Compose (despliegue multi-instancia)
 
 ## Estructura
 
 ```
 Cortex-asistente/
-├── main.py                        # Punto de entrada - lanza API y Bot en paralelo
+├── main.py                        # Punto de entrada - API y Bot en paralelo
+├── Dockerfile
+├── docker-compose.yml
+├── install.sh                     # Instalacion rapida en VPS
+├── add-instance.sh                # Agregar nuevas instancias
 ├── requirements.txt
 ├── .env.example
-├── .gitignore
-├── README.md
 ├── api/
-│   ├── __init__.py
 │   └── main.py                    # FastAPI con endpoints REST
 ├── bot/
-│   ├── __init__.py
-│   └── syn.py                     # Bot de Discord (Syn)
+│   └── syn.py                     # Bot de Telegram (Syn)
 ├── config/
-│   ├── __init__.py
 │   └── settings.py                # Config centralizada desde .env
 ├── services/
-│   ├── __init__.py
-│   └── openrouter_service.py      # Integración con OpenRouter API
+│   └── openrouter_service.py      # Integracion con OpenRouter API
 ├── core/
-│   └── __init__.py
 ├── models/
-│   └── __init__.py
 └── utils/
-    └── __init__.py
 ```
 
-## Instalacion
+## Instalacion rapida en VPS
 
 ```bash
-# Clonar el repositorio
 git clone https://github.com/MardsCE/Cortex-asistente.git
 cd Cortex-asistente
-
-# Crear entorno virtual
-python -m venv .venv
-source .venv/bin/activate  # Linux/Mac
-# .venv\Scripts\activate   # Windows
-
-# Instalar dependencias
-pip install -r requirements.txt
-
-# Configurar variables de entorno
-cp .env.example .env
-# Editar .env con tus tokens y configuracion
+bash install.sh
 ```
 
-## Configuracion
+El script instala Docker si no existe, crea `.env` desde el template y muestra los comandos disponibles.
 
-Copia `.env.example` a `.env` y completa las variables:
+### Configurar tokens
+
+```bash
+nano .env
+```
 
 | Variable | Descripcion | Default |
 |---|---|---|
-| `DISCORD_TOKEN` | Token del bot de Discord | - |
-| `DISCORD_PREFIX` | Prefijo de comandos | `!` |
+| `TELEGRAM_TOKEN` | Token del bot de Telegram (@BotFather) | - |
 | `OPENROUTER_API_KEY` | API key de OpenRouter | - |
-| `OPENROUTER_MODEL` | Modelo de IA a usar | `anthropic/claude-sonnet-4-20250514` |
+| `OPENROUTER_MODEL` | Modelo de IA | `anthropic/claude-sonnet-4-20250514` |
 | `API_HOST` | Host de la API | `0.0.0.0` |
 | `API_PORT` | Puerto de la API | `8000` |
-| `DATABASE_URL` | URL de la base de datos | `sqlite:///./cortex.db` |
+| `DATABASE_URL` | URL de la base de datos | `sqlite:///./data/cortex.db` |
 
-## Uso
+### Iniciar
 
 ```bash
-python main.py
+docker compose up -d --build
 ```
 
-Esto lanza simultaneamente:
-- **API REST** en `http://0.0.0.0:8000`
-- **Bot Syn** en Discord
+### Ver logs
 
-## Comandos de Discord
+```bash
+docker compose logs -f
+```
+
+## Multiples instancias
+
+Cada instancia corre en su propio contenedor con su bot de Telegram, datos y puerto independientes:
+
+```bash
+# Agregar una segunda instancia en puerto 8002
+bash add-instance.sh cortex-2 8002
+
+# Editar tokens de la nueva instancia
+nano .env.cortex-2
+
+# Levantar solo esa instancia
+docker compose up -d --build cortex-2
+```
+
+Cada instancia tiene su propio volumen Docker para datos persistentes (DB, archivos).
+
+## Comandos de Telegram
 
 | Comando | Descripcion |
 |---|---|
-| `!syn <mensaje>` | Habla con Syn, el asistente de Cortex |
-| `!status` | Muestra el estado del sistema |
-| `!ping` | Verifica la latencia del bot |
+| `/start` | Mensaje de bienvenida |
+| `/status` | Estado del sistema |
+| `/ping` | Verificar que el bot responde |
+| `/clear` | Limpiar historial de conversacion |
+| _(cualquier texto)_ | Hablar con Syn directamente |
 
 ## Endpoints API
 
@@ -98,4 +105,13 @@ Esto lanza simultaneamente:
 |---|---|---|
 | `GET` | `/` | Info del sistema |
 | `GET` | `/health` | Health check |
-| `POST` | `/chat` | Chat con Syn (body: `{"message": "...", "user_id": "..."}`) |
+| `POST` | `/chat` | Chat con Syn (`{"message": "...", "user_id": "..."}`) |
+
+## Comandos Docker
+
+```bash
+docker compose up -d --build    # Iniciar
+docker compose down              # Detener
+docker compose restart           # Reiniciar
+docker compose logs -f           # Ver logs
+```

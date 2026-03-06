@@ -1,60 +1,78 @@
-import discord
-from discord.ext import commands
+import asyncio
+from telegram import Update
+from telegram.ext import (
+    Application,
+    CommandHandler,
+    MessageHandler,
+    filters,
+    ContextTypes,
+)
 from config.settings import settings
 from services.openrouter_service import openrouter_service
 
-intents = discord.Intents.default()
-intents.message_content = True
 
-bot = commands.Bot(command_prefix=settings.DISCORD_PREFIX, intents=intents)
-
-
-@bot.event
-async def on_ready():
-    print(f"[Syn] Conectado como {bot.user} (ID: {bot.user.id})")
-    await bot.change_presence(
-        activity=discord.Activity(
-            type=discord.ActivityType.watching,
-            name=f"Cortex | {settings.DISCORD_PREFIX}help",
-        )
+async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    await update.message.reply_text(
+        "Hola, soy *Syn*, el asistente de Cortex.\n\n"
+        "Escribe cualquier mensaje y te respondere.\n\n"
+        "Comandos:\n"
+        "/status - Estado del sistema\n"
+        "/ping - Verificar latencia\n"
+        "/clear - Limpiar historial de conversacion",
+        parse_mode="Markdown",
     )
 
 
-@bot.command(name="syn", help="Habla con Syn, el asistente de Cortex.")
-async def syn_command(ctx: commands.Context, *, mensaje: str):
-    async with ctx.typing():
-        try:
-            response = await openrouter_service.ask(mensaje, str(ctx.author.id))
-        except Exception as e:
-            response = f"Error al contactar la IA: {e}"
+async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user_id = str(update.effective_user.id)
+    message = update.message.text
 
-    # Discord tiene límite de 2000 caracteres
-    if len(response) > 2000:
-        for i in range(0, len(response), 2000):
-            await ctx.send(response[i : i + 2000])
+    await context.bot.send_chat_action(
+        chat_id=update.effective_chat.id, action="typing"
+    )
+
+    try:
+        response = await openrouter_service.ask(message, user_id)
+    except Exception as e:
+        response = f"Error al contactar la IA: {e}"
+
+    # Telegram tiene limite de 4096 caracteres por mensaje
+    if len(response) > 4096:
+        for i in range(0, len(response), 4096):
+            await update.message.reply_text(response[i : i + 4096])
     else:
-        await ctx.send(response)
+        await update.message.reply_text(response)
 
 
-@bot.command(name="status", help="Muestra el estado del sistema.")
-async def status_command(ctx: commands.Context):
-    latency_ms = round(bot.latency * 1000, 2)
-    embed = discord.Embed(
-        title="Estado de Cortex",
-        color=discord.Color.green(),
+async def status_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    text = (
+        "*Estado de Cortex*\n\n"
+        "Bot: Online\n"
+        "IA: Activa\n"
+        f"Modelo: `{settings.OPENROUTER_MODEL}`\n\n"
+        "_Cortex - Plataforma de asistencia operativa_"
     )
-    embed.add_field(name="Bot", value="Online", inline=True)
-    embed.add_field(name="IA", value="Activa", inline=True)
-    embed.add_field(name="Latencia", value=f"{latency_ms} ms", inline=True)
-    embed.set_footer(text="Cortex - Plataforma de asistencia operativa")
-    await ctx.send(embed=embed)
+    await update.message.reply_text(text, parse_mode="Markdown")
 
 
-@bot.command(name="ping", help="Verifica la latencia del bot.")
-async def ping_command(ctx: commands.Context):
-    latency_ms = round(bot.latency * 1000, 2)
-    await ctx.send(f"Pong! Latencia: {latency_ms} ms")
+async def ping_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    await update.message.reply_text("Pong!")
+
+
+async def clear_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user_id = str(update.effective_user.id)
+    openrouter_service.histories.pop(user_id, None)
+    await update.message.reply_text("Historial de conversacion limpiado.")
 
 
 def run_bot():
-    bot.run(settings.DISCORD_TOKEN)
+    app = Application.builder().token(settings.TELEGRAM_TOKEN).build()
+
+    app.add_handler(CommandHandler("start", start))
+    app.add_handler(CommandHandler("status", status_command))
+    app.add_handler(CommandHandler("ping", ping_command))
+    app.add_handler(CommandHandler("clear", clear_command))
+    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
+
+    print("[Syn] Bot de Telegram iniciado.")
+    app.run_polling(allowed_updates=Update.ALL_TYPES)

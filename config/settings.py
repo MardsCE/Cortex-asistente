@@ -5,15 +5,14 @@ load_dotenv()
 
 
 class Settings:
-    """Configuración centralizada desde variables de entorno."""
+    """Configuracion centralizada desde variables de entorno."""
 
-    DISCORD_TOKEN: str = os.getenv("DISCORD_TOKEN", "")
-    DISCORD_PREFIX: str = os.getenv("DISCORD_PREFIX", "!")
+    TELEGRAM_TOKEN: str = os.getenv("TELEGRAM_TOKEN", "")
     OPENROUTER_API_KEY: str = os.getenv("OPENROUTER_API_KEY", "")
     OPENROUTER_MODEL: str = os.getenv("OPENROUTER_MODEL", "anthropic/claude-sonnet-4-20250514")
     API_HOST: str = os.getenv("API_HOST", "0.0.0.0")
     API_PORT: int = int(os.getenv("API_PORT", "8000"))
-    DATABASE_URL: str = os.getenv("DATABASE_URL", "sqlite:///./cortex.db")
+    DATABASE_URL: str = os.getenv("DATABASE_URL", "sqlite:///./data/cortex.db")
 
 
 settings = Settings()

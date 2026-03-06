@@ -16,10 +16,10 @@ def main():
     api_thread.start()
     print(f"[Cortex] API iniciada en http://{settings.API_HOST}:{settings.API_PORT}")
 
-    # Lanzar bot de Discord en el hilo principal (bloqueante)
+    # Lanzar bot de Telegram en el hilo principal (bloqueante)
     from bot.syn import run_bot
 
-    print("[Cortex] Iniciando bot Syn...")
+    print("[Cortex] Iniciando bot Syn en Telegram...")
     run_bot()
 
 
