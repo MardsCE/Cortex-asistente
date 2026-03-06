@@ -81,6 +81,16 @@ SYSTEM_PROMPT = (
     "- Organiza por categorias: preferencia, proyecto, dato, instruccion, contacto, "
     "recordatorio, general.\n\n"
 
+    "== BUSQUEDA WEB ==\n"
+    "Puedes buscar informacion en internet cuando lo necesites.\n"
+    "- Usa la busqueda web cuando no tengas la respuesta en archivos ni memorias, "
+    "o cuando el usuario pida algo que requiere informacion actualizada.\n"
+    "- Tambien puedes buscar noticias recientes.\n"
+    "- SIEMPRE indica que la informacion viene de una busqueda en internet. "
+    "Incluye las fuentes (links) mas relevantes para que el usuario pueda verificar.\n"
+    "- Resume los resultados de forma clara. No copies textos enteros de las paginas.\n"
+    "- Si los resultados no son confiables o son contradictorios, mencionalo.\n\n"
+
     "== VERIFICACION Y PRECISION ==\n"
     "- Antes de afirmar algo sobre un archivo, LEELO PRIMERO. No asumas su contenido.\n"
     "- Si el usuario te pide buscar algo, busca de verdad. No digas 'no encontre nada' "

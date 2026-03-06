@@ -1,5 +1,5 @@
 import json
-from services import drive_service, memory_service
+from services import drive_service, memory_service, web_search_service
 
 # Estado del modo citas por usuario: {user_id: bool}
 _modo_citas: dict[str, bool] = {}
@@ -329,6 +329,61 @@ TOOLS = [
     {
         "type": "function",
         "function": {
+            "name": "buscar_web",
+            "description": (
+                "Busca informacion en internet. Usa esta herramienta cuando: "
+                "1) El usuario pregunte algo que no esta en los archivos guardados ni en las memorias. "
+                "2) El usuario pida explicitamente buscar en internet. "
+                "3) Se necesite informacion actualizada (noticias, precios, eventos, etc.). "
+                "4) No tengas suficiente informacion para responder con certeza. "
+                "SIEMPRE indica al usuario que la informacion viene de una busqueda web."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "consulta": {
+                        "type": "string",
+                        "description": (
+                            "La consulta de busqueda. Escribe una busqueda clara y especifica. "
+                            "Puedes escribir en español o ingles segun convenga para mejores resultados."
+                        ),
+                    },
+                    "max_resultados": {
+                        "type": "integer",
+                        "description": "Cantidad maxima de resultados (default 5, max 10)",
+                    },
+                },
+                "required": ["consulta"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "buscar_noticias",
+            "description": (
+                "Busca noticias recientes en internet. Usa esta herramienta cuando el usuario "
+                "pregunte por noticias, eventos recientes, o informacion de actualidad."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "consulta": {
+                        "type": "string",
+                        "description": "Tema o consulta para buscar noticias",
+                    },
+                    "max_resultados": {
+                        "type": "integer",
+                        "description": "Cantidad maxima de resultados (default 5, max 10)",
+                    },
+                },
+                "required": ["consulta"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
             "name": "toggle_modo_citas",
             "description": (
                 "Activa o desactiva el modo de citas con prueba para el usuario. "
@@ -425,6 +480,14 @@ def ejecutar_herramienta(nombre: str, argumentos: dict) -> str:
 
     elif nombre == "buscar_memoria":
         return memory_service.buscar_memorias(argumentos["termino"])
+
+    elif nombre == "buscar_web":
+        max_res = min(argumentos.get("max_resultados", 5), 10)
+        return web_search_service.buscar_web(argumentos["consulta"], max_res)
+
+    elif nombre == "buscar_noticias":
+        max_res = min(argumentos.get("max_resultados", 5), 10)
+        return web_search_service.buscar_noticias(argumentos["consulta"], max_res)
 
     elif nombre == "toggle_modo_citas":
         activar = argumentos["activar"]
