@@ -29,7 +29,9 @@ Cortex-asistente/
 ├── config/
 │   └── settings.py                # Config centralizada desde .env
 ├── services/
-│   └── openrouter_service.py      # Integracion con OpenRouter API
+│   ├── openrouter_service.py      # Integracion con OpenRouter API
+│   ├── drive_service.py           # Descarga y registro de archivos de Drive
+│   └── tools.py                   # Herramientas que usa el LLM
 ├── core/
 ├── models/
 └── utils/
@@ -95,9 +97,21 @@ Cada instancia tiene su propio volumen Docker para datos persistentes (DB, archi
 |---|---|
 | `/inicio` | Mensaje de bienvenida |
 | `/estado` | Estado del sistema |
+| `/archivos` | Ver archivos guardados |
 | `/limpiar` | Limpiar historial |
 | `/ayuda` | Ver comandos |
 | _(cualquier texto)_ | Hablar con Syn directamente |
+
+## Google Drive
+
+Syn puede descargar y gestionar archivos de Google Drive publicos. Solo pega un link en el chat:
+
+- Syn lo descarga automaticamente
+- Genera una descripcion amplia y detallada del contenido
+- Lo registra en su directorio interno (`data/registro.json`)
+- Puedes pedirle que busque, edite descripciones o elimine archivos
+
+Ejemplo: _"Guarda esto: https://drive.google.com/..."_ y Syn se encarga del resto.
 
 ## Endpoints API
 

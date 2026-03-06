@@ -13,9 +13,11 @@ from services.openrouter_service import openrouter_service
 async def inicio(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(
         "Hola, soy *Syn*, el asistente de Cortex.\n\n"
-        "Escribe cualquier mensaje y te respondo.\n\n"
+        "Escribe cualquier mensaje y te respondo.\n"
+        "Puedes pasarme links de Google Drive y los guardo con su descripcion.\n\n"
         "Comandos:\n"
         "/estado - Estado del sistema\n"
+        "/archivos - Ver archivos guardados\n"
         "/limpiar - Limpiar historial\n"
         "/ayuda - Ver comandos",
         parse_mode="Markdown",
@@ -59,14 +61,29 @@ async def limpiar(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text("Historial limpiado.")
 
 
+async def archivos(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    from services.drive_service import listar_registro
+
+    registro = listar_registro()
+    if len(registro) > 4096:
+        for i in range(0, len(registro), 4096):
+            await update.message.reply_text(registro[i : i + 4096])
+    else:
+        await update.message.reply_text(registro)
+
+
 async def ayuda(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(
         "*Comandos de Syn*\n\n"
         "/inicio - Mensaje de bienvenida\n"
         "/estado - Estado del sistema\n"
+        "/archivos - Ver archivos guardados\n"
         "/limpiar - Limpiar historial\n"
         "/ayuda - Ver este mensaje\n\n"
-        "O simplemente escribe lo que necesites.",
+        "Tambien puedes:\n"
+        "- Enviarme un link de Drive y lo guardo\n"
+        "- Pedirme que busque o edite descripciones\n"
+        "- Escribir cualquier pregunta",
         parse_mode="Markdown",
     )
 
@@ -77,6 +94,7 @@ def run_bot():
     app.add_handler(CommandHandler("start", inicio))
     app.add_handler(CommandHandler("inicio", inicio))
     app.add_handler(CommandHandler("estado", estado))
+    app.add_handler(CommandHandler("archivos", archivos))
     app.add_handler(CommandHandler("limpiar", limpiar))
     app.add_handler(CommandHandler("ayuda", ayuda))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, mensaje))
