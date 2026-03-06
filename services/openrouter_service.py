@@ -5,6 +5,7 @@ from config.settings import settings
 from services.tools import TOOLS, ejecutar_herramienta, get_modo_citas
 from services.drive_service import listar_registro
 from services.memory_service import obtener_memorias_para_prompt
+from services.goals_service import obtener_metas_para_prompt
 
 SYSTEM_PROMPT = (
     "Eres Syn, el asistente de Cortex. Respondes SIEMPRE en español.\n\n"
@@ -81,6 +82,30 @@ SYSTEM_PROMPT = (
     "- Organiza por categorias: preferencia, proyecto, dato, instruccion, contacto, "
     "recordatorio, general.\n\n"
 
+    "== RECORDATORIOS ==\n"
+    "Puedes programar recordatorios que se envian automaticamente al usuario.\n"
+    "- Tipos: unico (una fecha), diario, semanal (un dia especifico), cada X dias.\n"
+    "- Cuando el usuario diga cosas como 'recuerdame a las 9...', 'avisame cada lunes...', "
+    "'en 3 dias recuerdame...', crea un recordatorio con la frecuencia correcta.\n"
+    "- Interpreta bien la intencion: si dice 'cada dia a las 8 revisame el correo', "
+    "es un recordatorio diario a las 08:00.\n"
+    "- Si dice una fecha especifica, usa tipo 'unico' con esa fecha.\n"
+    "- El usuario puede listar, pausar/activar y eliminar sus recordatorios.\n"
+    "- Los recordatorios se envian automaticamente; no necesitas hacer nada mas.\n\n"
+
+    "== METAS Y OBJETIVOS ==\n"
+    "Puedes ayudar al usuario a planificar y hacer seguimiento de objetivos complejos.\n"
+    "- Cuando el usuario tenga algo que requiere varios pasos, crea una meta con pasos claros.\n"
+    "- Los pasos deben ser concretos y verificables, no vagos.\n"
+    "- Puedes agregar pasos nuevos a metas existentes si surgen.\n"
+    "- Cuando el usuario diga que completo un paso o quiera avanzar, actualiza el estado.\n"
+    "- IMPORTANTE: Si un paso implica verificar informacion de archivos, "
+    "PRIMERO lee el archivo y verifica antes de marcarlo como completado. "
+    "Si el modo de citas con prueba esta activo, genera la captura de prueba.\n"
+    "- Al iniciar una conversacion, si hay metas activas, ten en cuenta el progreso "
+    "para poder mencionar o preguntar al usuario sobre su avance.\n"
+    "- Puedes sugerir crear metas cuando el usuario mencione objetivos complejos.\n\n"
+
     "== BUSQUEDA WEB ==\n"
     "Puedes buscar informacion en internet cuando lo necesites.\n"
     "- Usa la busqueda web cuando no tengas la respuesta en archivos ni memorias, "
@@ -131,13 +156,17 @@ class OpenRouterService:
         if memorias:
             prompt += f"\n\nMEMORIAS GUARDADAS (usa esta informacion para personalizar tus respuestas):\n{memorias}"
 
+        metas = obtener_metas_para_prompt(user_id)
+        if metas:
+            prompt += f"\n\nMETAS ACTIVAS DEL USUARIO:\n{metas}"
+
         return prompt
 
     def _recortar(self, history: list[dict]):
         if len(history) > MAX_HISTORY:
             history[:] = history[-MAX_HISTORY:]
 
-    async def ask(self, message: str, user_id: str) -> dict:
+    async def ask(self, message: str, user_id: str, chat_id: str = "") -> dict:
         """Procesa un mensaje. Retorna dict con 'texto' y opcionalmente 'imagenes'."""
         history = self.histories[user_id]
         history.append({"role": "user", "content": message})
@@ -181,7 +210,7 @@ class OpenRouterService:
 
             for tc in choice.message.tool_calls:
                 args = json.loads(tc.function.arguments)
-                resultado = ejecutar_herramienta(tc.function.name, args)
+                resultado = ejecutar_herramienta(tc.function.name, args, user_id=user_id, chat_id=chat_id)
                 messages.append({
                     "role": "tool",
                     "tool_call_id": tc.id,

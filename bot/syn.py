@@ -19,6 +19,8 @@ async def inicio(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "/estado - Estado del sistema\n"
         "/archivos - Ver archivos guardados\n"
         "/memorias - Ver memorias guardadas\n"
+        "/recordatorios - Ver recordatorios activos\n"
+        "/metas - Ver metas activas\n"
         "/citas - Activar/desactivar modo citas con prueba\n"
         "/limpiar - Limpiar historial\n"
         "/ayuda - Ver comandos",
@@ -59,7 +61,7 @@ async def mensaje(update: Update, context: ContextTypes.DEFAULT_TYPE):
     )
 
     try:
-        resultado = await openrouter_service.ask(texto, user_id)
+        resultado = await openrouter_service.ask(texto, user_id, chat_id=str(update.effective_chat.id))
     except Exception as e:
         resultado = {"texto": f"Error al contactar la IA: {e}", "imagenes": []}
 
@@ -133,6 +135,46 @@ async def memorias(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text(resultado)
 
 
+async def recordatorios_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    from services.reminder_service import listar_recordatorios
+
+    user_id = str(update.effective_user.id)
+    resultado = listar_recordatorios(user_id)
+    if len(resultado) > 4096:
+        for i in range(0, len(resultado), 4096):
+            await update.message.reply_text(resultado[i : i + 4096])
+    else:
+        await update.message.reply_text(resultado)
+
+
+async def metas_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    from services.goals_service import listar_metas
+
+    user_id = str(update.effective_user.id)
+    resultado = listar_metas(user_id, solo_activas=True)
+    if len(resultado) > 4096:
+        for i in range(0, len(resultado), 4096):
+            await update.message.reply_text(resultado[i : i + 4096])
+    else:
+        await update.message.reply_text(resultado)
+
+
+async def _verificar_recordatorios(context: ContextTypes.DEFAULT_TYPE):
+    """Job que se ejecuta cada minuto para enviar recordatorios pendientes."""
+    from services.reminder_service import obtener_recordatorios_pendientes
+
+    pendientes = obtener_recordatorios_pendientes()
+    for r in pendientes:
+        try:
+            await context.bot.send_message(
+                chat_id=r["chat_id"],
+                text=f"🔔 *Recordatorio*\n\n{r['contenido']}",
+                parse_mode="Markdown",
+            )
+        except Exception as e:
+            print(f"[Syn] Error enviando recordatorio #{r['id']}: {e}")
+
+
 async def ayuda(update: Update, context: ContextTypes.DEFAULT_TYPE):
     from services.tools import get_modo_citas
 
@@ -144,6 +186,8 @@ async def ayuda(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "/estado - Estado del sistema\n"
         "/archivos - Ver archivos guardados\n"
         "/memorias - Ver memorias guardadas\n"
+        "/recordatorios - Ver recordatorios programados\n"
+        "/metas - Ver metas activas\n"
         f"/citas - Toggle modo citas con prueba (actual: {modo})\n"
         "/limpiar - Limpiar historial\n"
         "/ayuda - Ver este mensaje\n\n"
@@ -151,6 +195,9 @@ async def ayuda(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "- Enviarme un link de Drive y lo guardo\n"
         "- Decirme 'recuerda que...' y lo memorizo\n"
         "- Pedirme que busque o edite descripciones\n"
+        "- Decirme 'avisame a las 9am...' y te programo un recordatorio\n"
+        "- Decirme 'quiero lograr...' y te creo una meta con pasos\n"
+        "- Pedirme buscar algo en internet\n"
         "- Decirme 'activa citas' o 'desactiva citas'\n"
         "- Escribir cualquier pregunta",
         parse_mode="Markdown",
@@ -166,9 +213,15 @@ def run_bot():
     app.add_handler(CommandHandler("archivos", archivos))
     app.add_handler(CommandHandler("citas", citas))
     app.add_handler(CommandHandler("memorias", memorias))
+    app.add_handler(CommandHandler("recordatorios", recordatorios_cmd))
+    app.add_handler(CommandHandler("metas", metas_cmd))
     app.add_handler(CommandHandler("limpiar", limpiar))
     app.add_handler(CommandHandler("ayuda", ayuda))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, mensaje))
 
+    # Scheduler: verificar recordatorios cada 60 segundos
+    app.job_queue.run_repeating(_verificar_recordatorios, interval=60, first=10)
+
     print("[Syn] Bot de Telegram iniciado.")
+    print("[Syn] Scheduler de recordatorios activo (cada 60s).")
     app.run_polling(allowed_updates=Update.ALL_TYPES)

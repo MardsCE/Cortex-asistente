@@ -1,5 +1,5 @@
 import json
-from services import drive_service, memory_service, web_search_service
+from services import drive_service, memory_service, web_search_service, reminder_service, goals_service
 
 # Estado del modo citas por usuario: {user_id: bool}
 _modo_citas: dict[str, bool] = {}
@@ -329,6 +329,265 @@ TOOLS = [
     {
         "type": "function",
         "function": {
+            "name": "crear_recordatorio",
+            "description": (
+                "Crea un recordatorio programado para el usuario. "
+                "Usa esta herramienta cuando el usuario pida que le recuerdes algo a cierta hora, "
+                "cada dia, cada semana, o cada cierto tiempo. Ejemplos: "
+                "'recuerdame a las 9am revisar el correo', 'avisame cada lunes a las 8', "
+                "'en 3 dias recuerdame entregar el proyecto'. "
+                "El bot enviara el recordatorio automaticamente a la hora indicada."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "contenido": {
+                        "type": "string",
+                        "description": "Texto del recordatorio (que debe recordar o hacer)",
+                    },
+                    "tipo": {
+                        "type": "string",
+                        "enum": ["unico", "diario", "semanal", "cada_x_dias"],
+                        "description": (
+                            "Frecuencia: unico (una sola vez), diario (todos los dias), "
+                            "semanal (un dia especifico de la semana), cada_x_dias (cada N dias)"
+                        ),
+                    },
+                    "hora": {
+                        "type": "string",
+                        "description": "Hora en formato HH:MM (24h). Ejemplo: '09:00', '14:30'",
+                    },
+                    "dia_semana": {
+                        "type": "integer",
+                        "description": "Solo para tipo 'semanal': dia de la semana (0=lunes, 6=domingo)",
+                    },
+                    "dias_intervalo": {
+                        "type": "integer",
+                        "description": "Solo para tipo 'cada_x_dias': cada cuantos dias",
+                    },
+                    "fecha_unica": {
+                        "type": "string",
+                        "description": "Solo para tipo 'unico': fecha en formato YYYY-MM-DD",
+                    },
+                },
+                "required": ["contenido", "tipo", "hora"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "listar_recordatorios",
+            "description": (
+                "Lista los recordatorios del usuario. "
+                "Usa esta herramienta cuando el usuario pregunte que recordatorios tiene, "
+                "o quiera ver sus alarmas programadas."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {},
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "eliminar_recordatorio",
+            "description": (
+                "Elimina un recordatorio por su ID. "
+                "Usa esta herramienta cuando el usuario pida cancelar o quitar un recordatorio."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "recordatorio_id": {
+                        "type": "integer",
+                        "description": "ID del recordatorio a eliminar",
+                    },
+                },
+                "required": ["recordatorio_id"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "toggle_recordatorio",
+            "description": (
+                "Activa o pausa un recordatorio existente sin eliminarlo."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "recordatorio_id": {
+                        "type": "integer",
+                        "description": "ID del recordatorio a activar/pausar",
+                    },
+                },
+                "required": ["recordatorio_id"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "crear_meta",
+            "description": (
+                "Crea una meta u objetivo con pasos definidos para el usuario. "
+                "Usa esta herramienta cuando el usuario quiera planificar algo con varios pasos, "
+                "establecer un objetivo, o necesite organizar una tarea compleja. "
+                "Ejemplos: 'quiero aprender Python', 'tengo que preparar la presentacion del viernes', "
+                "'necesito organizar la mudanza'. "
+                "Define pasos claros y concretos. Si el usuario tiene el modo de citas activo, "
+                "al verificar pasos que involucren archivos, genera capturas de prueba."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "titulo": {
+                        "type": "string",
+                        "description": "Titulo corto de la meta",
+                    },
+                    "descripcion": {
+                        "type": "string",
+                        "description": "Descripcion detallada de que se quiere lograr",
+                    },
+                    "pasos": {
+                        "type": "array",
+                        "items": {"type": "string"},
+                        "description": "Lista de pasos concretos para cumplir la meta, en orden",
+                    },
+                    "fecha_limite": {
+                        "type": "string",
+                        "description": "Fecha limite opcional en formato YYYY-MM-DD",
+                    },
+                },
+                "required": ["titulo", "descripcion", "pasos"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "ver_meta",
+            "description": (
+                "Muestra el detalle completo de una meta con el estado de cada paso. "
+                "Usa esta herramienta cuando el usuario pregunte como va una meta especifica."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "meta_id": {
+                        "type": "integer",
+                        "description": "ID de la meta a ver",
+                    },
+                },
+                "required": ["meta_id"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "listar_metas",
+            "description": (
+                "Lista las metas del usuario. "
+                "Usa esta herramienta cuando el usuario pregunte por sus metas u objetivos."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "solo_activas": {
+                        "type": "boolean",
+                        "description": "True para ver solo metas activas, False para ver todas (default True)",
+                    },
+                },
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "actualizar_paso",
+            "description": (
+                "Actualiza el estado de un paso de una meta. "
+                "Usa esta herramienta cuando el usuario indique que completo un paso, "
+                "que esta trabajando en uno, o quiera agregar notas a un paso. "
+                "Si el paso implica verificar informacion de archivos, PRIMERO lee el archivo "
+                "y verifica antes de marcar como completado."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "meta_id": {
+                        "type": "integer",
+                        "description": "ID de la meta",
+                    },
+                    "paso_num": {
+                        "type": "integer",
+                        "description": "Numero del paso a actualizar",
+                    },
+                    "nuevo_estado": {
+                        "type": "string",
+                        "enum": ["pendiente", "en_progreso", "completado"],
+                        "description": "Nuevo estado del paso",
+                    },
+                    "notas": {
+                        "type": "string",
+                        "description": "Notas opcionales sobre el avance del paso",
+                    },
+                },
+                "required": ["meta_id", "paso_num", "nuevo_estado"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "agregar_paso",
+            "description": (
+                "Agrega un nuevo paso a una meta existente. "
+                "Usa esta herramienta cuando el usuario quiera añadir pasos adicionales a una meta."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "meta_id": {
+                        "type": "integer",
+                        "description": "ID de la meta",
+                    },
+                    "descripcion": {
+                        "type": "string",
+                        "description": "Descripcion del nuevo paso",
+                    },
+                },
+                "required": ["meta_id", "descripcion"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "eliminar_meta",
+            "description": (
+                "Elimina una meta por su ID. "
+                "Usa esta herramienta cuando el usuario pida borrar o cancelar una meta."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "meta_id": {
+                        "type": "integer",
+                        "description": "ID de la meta a eliminar",
+                    },
+                },
+                "required": ["meta_id"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
             "name": "buscar_web",
             "description": (
                 "Busca informacion en internet. Usa esta herramienta cuando: "
@@ -409,8 +668,14 @@ TOOLS = [
 ]
 
 
-def ejecutar_herramienta(nombre: str, argumentos: dict) -> str:
-    """Ejecuta una herramienta por nombre y devuelve el resultado como texto."""
+def ejecutar_herramienta(nombre: str, argumentos: dict, user_id: str = "", chat_id: str = "") -> str:
+    """Ejecuta una herramienta por nombre y devuelve el resultado como texto.
+
+    user_id y chat_id se inyectan automaticamente para herramientas que lo necesiten.
+    """
+    # Inyectar user_id y chat_id en argumentos para herramientas que lo necesiten
+    argumentos["user_id"] = argumentos.get("user_id") or user_id
+    argumentos["chat_id"] = argumentos.get("chat_id") or chat_id
     if nombre == "descargar_drive":
         resultado = drive_service.descargar_drive(argumentos["url"], argumentos.get("nombre"))
         if resultado["ok"]:
@@ -480,6 +745,72 @@ def ejecutar_herramienta(nombre: str, argumentos: dict) -> str:
 
     elif nombre == "buscar_memoria":
         return memory_service.buscar_memorias(argumentos["termino"])
+
+    elif nombre == "crear_recordatorio":
+        return reminder_service.crear_recordatorio(
+            user_id=argumentos.get("user_id", ""),
+            chat_id=argumentos.get("chat_id", ""),
+            contenido=argumentos["contenido"],
+            tipo=argumentos["tipo"],
+            hora=argumentos["hora"],
+            dia_semana=argumentos.get("dia_semana"),
+            dias_intervalo=argumentos.get("dias_intervalo"),
+            fecha_unica=argumentos.get("fecha_unica"),
+        )
+
+    elif nombre == "listar_recordatorios":
+        return reminder_service.listar_recordatorios(argumentos.get("user_id", ""))
+
+    elif nombre == "eliminar_recordatorio":
+        return reminder_service.eliminar_recordatorio(
+            argumentos.get("user_id", ""), argumentos["recordatorio_id"]
+        )
+
+    elif nombre == "toggle_recordatorio":
+        return reminder_service.toggle_recordatorio(
+            argumentos.get("user_id", ""), argumentos["recordatorio_id"]
+        )
+
+    elif nombre == "crear_meta":
+        return goals_service.crear_meta(
+            user_id=argumentos.get("user_id", ""),
+            titulo=argumentos["titulo"],
+            descripcion=argumentos["descripcion"],
+            pasos=argumentos["pasos"],
+            fecha_limite=argumentos.get("fecha_limite"),
+        )
+
+    elif nombre == "ver_meta":
+        return goals_service.ver_meta(
+            argumentos.get("user_id", ""), argumentos["meta_id"]
+        )
+
+    elif nombre == "listar_metas":
+        return goals_service.listar_metas(
+            argumentos.get("user_id", ""),
+            argumentos.get("solo_activas", True),
+        )
+
+    elif nombre == "actualizar_paso":
+        return goals_service.actualizar_paso(
+            user_id=argumentos.get("user_id", ""),
+            meta_id=argumentos["meta_id"],
+            paso_num=argumentos["paso_num"],
+            nuevo_estado=argumentos["nuevo_estado"],
+            notas=argumentos.get("notas", ""),
+        )
+
+    elif nombre == "agregar_paso":
+        return goals_service.agregar_paso(
+            argumentos.get("user_id", ""),
+            argumentos["meta_id"],
+            argumentos["descripcion"],
+        )
+
+    elif nombre == "eliminar_meta":
+        return goals_service.eliminar_meta(
+            argumentos.get("user_id", ""), argumentos["meta_id"]
+        )
 
     elif nombre == "buscar_web":
         max_res = min(argumentos.get("max_resultados", 5), 10)
