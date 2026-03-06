@@ -1,5 +1,5 @@
 import json
-from services import drive_service
+from services import drive_service, memory_service
 
 # Estado del modo citas por usuario: {user_id: bool}
 _modo_citas: dict[str, bool] = {}
@@ -231,6 +231,104 @@ TOOLS = [
     {
         "type": "function",
         "function": {
+            "name": "guardar_memoria",
+            "description": (
+                "Guarda una memoria o nota importante para recordar en el futuro. "
+                "Usa esta herramienta cuando el usuario te diga algo que quiere que recuerdes, "
+                "o cuando TU detectes informacion importante que vale la pena memorizar: "
+                "preferencias del usuario, datos clave, instrucciones recurrentes, contexto de proyectos, "
+                "nombres, fechas importantes, decisiones tomadas, etc. "
+                "SE INTELIGENTE: si el usuario dice 'recuerda que...', 'no olvides que...', "
+                "'toma nota de...', o te da informacion relevante sobre si mismo o su trabajo, guardala. "
+                "Tambien puedes guardar memorias por iniciativa propia si detectas algo util."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "contenido": {
+                        "type": "string",
+                        "description": (
+                            "El contenido de la memoria. Escribe de forma clara y concisa "
+                            "pero con suficiente detalle para que sea util en el futuro. "
+                            "Ejemplo: 'El usuario prefiere respuestas cortas y directas' o "
+                            "'El proyecto Alpha usa Python 3.11 y FastAPI'"
+                        ),
+                    },
+                    "categoria": {
+                        "type": "string",
+                        "description": (
+                            "Categoria para organizar la memoria. Usa categorias como: "
+                            "preferencia, proyecto, dato, instruccion, contacto, recordatorio, general"
+                        ),
+                    },
+                },
+                "required": ["contenido", "categoria"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "listar_memorias",
+            "description": (
+                "Lista todas las memorias guardadas o las de una categoria especifica. "
+                "Usa esta herramienta cuando el usuario pregunte que recuerdas, "
+                "que memorias hay, o pida ver sus notas guardadas."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "categoria": {
+                        "type": "string",
+                        "description": "Filtrar por categoria (opcional). Dejar vacio para ver todas.",
+                    },
+                },
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "eliminar_memoria",
+            "description": (
+                "Elimina una memoria por su numero de ID. "
+                "Usa esta herramienta cuando el usuario pida borrar o quitar una memoria especifica."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "memoria_id": {
+                        "type": "integer",
+                        "description": "El numero ID de la memoria a eliminar",
+                    },
+                },
+                "required": ["memoria_id"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "buscar_memoria",
+            "description": (
+                "Busca memorias por contenido o categoria. "
+                "Usa esta herramienta cuando necesites encontrar algo especifico entre las memorias."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "termino": {
+                        "type": "string",
+                        "description": "Texto a buscar en las memorias",
+                    },
+                },
+                "required": ["termino"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
             "name": "toggle_modo_citas",
             "description": (
                 "Activa o desactiva el modo de citas con prueba para el usuario. "
@@ -313,6 +411,20 @@ def ejecutar_herramienta(nombre: str, argumentos: dict) -> str:
                 "nota": "La imagen sera enviada automaticamente al usuario.",
             }, ensure_ascii=False)
         return json.dumps({"estado": "error", "error": resultado["error"]}, ensure_ascii=False)
+
+    elif nombre == "guardar_memoria":
+        return memory_service.agregar_memoria(
+            argumentos["contenido"], argumentos.get("categoria", "general")
+        )
+
+    elif nombre == "listar_memorias":
+        return memory_service.listar_memorias(argumentos.get("categoria"))
+
+    elif nombre == "eliminar_memoria":
+        return memory_service.eliminar_memoria(argumentos["memoria_id"])
+
+    elif nombre == "buscar_memoria":
+        return memory_service.buscar_memorias(argumentos["termino"])
 
     elif nombre == "toggle_modo_citas":
         activar = argumentos["activar"]

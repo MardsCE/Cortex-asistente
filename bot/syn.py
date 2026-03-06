@@ -18,6 +18,7 @@ async def inicio(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "Comandos:\n"
         "/estado - Estado del sistema\n"
         "/archivos - Ver archivos guardados\n"
+        "/memorias - Ver memorias guardadas\n"
         "/citas - Activar/desactivar modo citas con prueba\n"
         "/limpiar - Limpiar historial\n"
         "/ayuda - Ver comandos",
@@ -121,6 +122,17 @@ async def citas(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
 
 
+async def memorias(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    from services.memory_service import listar_memorias
+
+    resultado = listar_memorias()
+    if len(resultado) > 4096:
+        for i in range(0, len(resultado), 4096):
+            await update.message.reply_text(resultado[i : i + 4096])
+    else:
+        await update.message.reply_text(resultado)
+
+
 async def ayuda(update: Update, context: ContextTypes.DEFAULT_TYPE):
     from services.tools import get_modo_citas
 
@@ -131,11 +143,13 @@ async def ayuda(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "/inicio - Mensaje de bienvenida\n"
         "/estado - Estado del sistema\n"
         "/archivos - Ver archivos guardados\n"
+        "/memorias - Ver memorias guardadas\n"
         f"/citas - Toggle modo citas con prueba (actual: {modo})\n"
         "/limpiar - Limpiar historial\n"
         "/ayuda - Ver este mensaje\n\n"
         "Tambien puedes:\n"
         "- Enviarme un link de Drive y lo guardo\n"
+        "- Decirme 'recuerda que...' y lo memorizo\n"
         "- Pedirme que busque o edite descripciones\n"
         "- Decirme 'activa citas' o 'desactiva citas'\n"
         "- Escribir cualquier pregunta",
@@ -151,6 +165,7 @@ def run_bot():
     app.add_handler(CommandHandler("estado", estado))
     app.add_handler(CommandHandler("archivos", archivos))
     app.add_handler(CommandHandler("citas", citas))
+    app.add_handler(CommandHandler("memorias", memorias))
     app.add_handler(CommandHandler("limpiar", limpiar))
     app.add_handler(CommandHandler("ayuda", ayuda))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, mensaje))

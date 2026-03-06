@@ -4,6 +4,7 @@ from openai import AsyncOpenAI
 from config.settings import settings
 from services.tools import TOOLS, ejecutar_herramienta, get_modo_citas
 from services.drive_service import listar_registro
+from services.memory_service import obtener_memorias_para_prompt
 
 SYSTEM_PROMPT = (
     "Eres Syn, el asistente inteligente de Cortex. "
@@ -31,6 +32,20 @@ SYSTEM_PROMPT = (
     "- Si el usuario dice 'activa citas', 'modo prueba', 'activa pruebas', "
     "o algo similar, usa toggle_modo_citas para activarlo.\n"
     "- Si dice 'desactiva citas' o similar, desactivalo.\n\n"
+    "MEMORIAS:\n"
+    "- Tienes un sistema de memorias persistentes. Las memorias se guardan en disco "
+    "y sobreviven entre conversaciones. SIEMPRE las tienes disponibles.\n"
+    "- Cuando el usuario te diga 'recuerda que...', 'no olvides...', 'toma nota...', "
+    "o te de informacion importante sobre si mismo, su trabajo, preferencias, etc., "
+    "USA guardar_memoria para guardarlo.\n"
+    "- SE PROACTIVO: si detectas informacion valiosa (nombres, preferencias, datos de proyectos, "
+    "decisiones importantes), guardala sin que te lo pidan.\n"
+    "- SIEMPRE consulta tus memorias antes de responder para dar respuestas personalizadas "
+    "y coherentes con lo que ya sabes del usuario.\n"
+    "- Puedes eliminar memorias obsoletas o incorrectas cuando el usuario lo pida "
+    "o cuando detectes que ya no aplican.\n"
+    "- Usa categorias para organizar: preferencia, proyecto, dato, instruccion, "
+    "contacto, recordatorio, general.\n\n"
     "Si no tienes info de algo del sistema, lo indicas honestamente."
 )
 
@@ -58,6 +73,11 @@ class OpenRouterService:
         prompt += f"\n- Modo citas con prueba: {'ACTIVO' if modo_citas else 'INACTIVO'}"
         if registro and "vacio" not in registro.lower():
             prompt += f"\n\nARCHIVOS REGISTRADOS ACTUALMENTE:\n{registro}"
+
+        memorias = obtener_memorias_para_prompt()
+        if memorias:
+            prompt += f"\n\nMEMORIAS GUARDADAS (usa esta informacion para personalizar tus respuestas):\n{memorias}"
+
         return prompt
 
     def _recortar(self, history: list[dict]):
