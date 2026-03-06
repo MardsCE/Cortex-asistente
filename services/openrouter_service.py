@@ -174,7 +174,7 @@ class OpenRouterService:
 
     def _system_prompt(self, user_id: str) -> str:
         """Genera el system prompt incluyendo el registro y estado de citas."""
-        registro = listar_registro()
+        registro = listar_registro(user_id)
         modo_citas = get_modo_citas(user_id)
         prompt = SYSTEM_PROMPT
         prompt += f"\n\nESTADO ACTUAL:"
@@ -183,7 +183,7 @@ class OpenRouterService:
         if registro and "vacio" not in registro.lower():
             prompt += f"\n\nARCHIVOS REGISTRADOS ACTUALMENTE:\n{registro}"
 
-        memorias = obtener_memorias_para_prompt()
+        memorias = obtener_memorias_para_prompt(user_id)
         if memorias:
             prompt += f"\n\nMEMORIAS GUARDADAS (usa esta informacion para personalizar tus respuestas):\n{memorias}"
 
@@ -247,7 +247,17 @@ class OpenRouterService:
             messages.append(assistant_msg)
 
             for tc in choice.message.tool_calls:
-                args = json.loads(tc.function.arguments)
+                try:
+                    args = json.loads(tc.function.arguments)
+                except json.JSONDecodeError:
+                    log_service.log_error(user_id, "json_parse", f"Argumentos invalidos para {tc.function.name}: {tc.function.arguments[:200]}")
+                    messages.append({
+                        "role": "tool",
+                        "tool_call_id": tc.id,
+                        "content": "ERROR: No se pudieron parsear los argumentos. Intenta de nuevo.",
+                    })
+                    continue
+
                 log_service.log_tool_call(user_id, tc.function.name, args)
                 resultado = ejecutar_herramienta(tc.function.name, args, user_id=user_id, chat_id=chat_id)
                 log_service.log_tool_result(user_id, tc.function.name, resultado)

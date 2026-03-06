@@ -12,7 +12,15 @@ class Settings:
     OPENROUTER_MODEL: str = os.getenv("OPENROUTER_MODEL", "anthropic/claude-sonnet-4-20250514")
     API_HOST: str = os.getenv("API_HOST", "0.0.0.0")
     API_PORT: int = int(os.getenv("API_PORT", "8000"))
-    DATABASE_URL: str = os.getenv("DATABASE_URL", "sqlite:///./data/cortex.db")
+    TIMEZONE: str = os.getenv("TIMEZONE", "America/Mexico_City")
+    ALLOWED_USERS: list[str] = [
+        u.strip() for u in os.getenv("ALLOWED_USERS", "").split(",") if u.strip()
+    ]
 
 
 settings = Settings()
+
+if not settings.TELEGRAM_TOKEN:
+    raise ValueError("TELEGRAM_TOKEN no configurado. Revisa tu archivo .env")
+if not settings.OPENROUTER_API_KEY:
+    raise ValueError("OPENROUTER_API_KEY no configurado. Revisa tu archivo .env")

@@ -10,7 +10,25 @@ from config.settings import settings
 from services.openrouter_service import openrouter_service
 
 
+def _autorizado(user_id: str) -> bool:
+    """Verifica si el usuario esta en la whitelist. Si no hay whitelist, permite todos."""
+    if not settings.ALLOWED_USERS:
+        return True
+    return user_id in settings.ALLOWED_USERS
+
+
+async def _check_auth(update: Update) -> bool:
+    """Verifica autorizacion y envia mensaje de rechazo si no esta autorizado."""
+    user_id = str(update.effective_user.id)
+    if not _autorizado(user_id):
+        await update.message.reply_text("No tienes acceso a este bot.")
+        return False
+    return True
+
+
 async def inicio(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if not await _check_auth(update):
+        return
     await update.message.reply_text(
         "Hola, soy *Syn*, el asistente de Cortex.\n\n"
         "Escribe cualquier mensaje y te respondo.\n"
@@ -34,14 +52,12 @@ async def _enviar_respuesta(update: Update, resultado: dict):
     texto = resultado["texto"]
     imagenes = resultado.get("imagenes", [])
 
-    # Enviar texto
     if len(texto) > 4096:
         for i in range(0, len(texto), 4096):
             await update.message.reply_text(texto[i : i + 4096])
     else:
         await update.message.reply_text(texto)
 
-    # Enviar imagenes de captura como prueba
     for ruta_img in imagenes:
         try:
             with open(ruta_img, "rb") as foto:
@@ -49,11 +65,13 @@ async def _enviar_respuesta(update: Update, resultado: dict):
                     photo=foto,
                     caption="Captura de la fuente citada",
                 )
-        except Exception as e:
-            await update.message.reply_text(f"No pude enviar la captura: {e}")
+        except Exception:
+            await update.message.reply_text("No pude enviar la captura.")
 
 
 async def mensaje(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if not await _check_auth(update):
+        return
     user_id = str(update.effective_user.id)
     texto = update.message.text
 
@@ -63,13 +81,15 @@ async def mensaje(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     try:
         resultado = await openrouter_service.ask(texto, user_id, chat_id=str(update.effective_chat.id))
-    except Exception as e:
-        resultado = {"texto": f"Error al contactar la IA: {e}", "imagenes": []}
+    except Exception:
+        resultado = {"texto": "Hubo un error al procesar tu mensaje. Intenta de nuevo.", "imagenes": []}
 
     await _enviar_respuesta(update, resultado)
 
 
 async def estado(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if not await _check_auth(update):
+        return
     from services.tools import get_modo_citas
 
     user_id = str(update.effective_user.id)
@@ -79,6 +99,7 @@ async def estado(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "Bot: Activo\n"
         "IA: Conectada\n"
         f"Modelo: `{settings.OPENROUTER_MODEL}`\n"
+        f"Zona horaria: {settings.TIMEZONE}\n"
         f"Modo citas con prueba: {modo}\n\n"
         "_Cortex - Asistencia operativa con IA_"
     )
@@ -86,15 +107,20 @@ async def estado(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 async def limpiar(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if not await _check_auth(update):
+        return
     user_id = str(update.effective_user.id)
     openrouter_service.histories.pop(user_id, None)
     await update.message.reply_text("Historial limpiado.")
 
 
 async def archivos(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if not await _check_auth(update):
+        return
     from services.drive_service import listar_registro
 
-    registro = listar_registro()
+    user_id = str(update.effective_user.id)
+    registro = listar_registro(user_id)
     if len(registro) > 4096:
         for i in range(0, len(registro), 4096):
             await update.message.reply_text(registro[i : i + 4096])
@@ -103,6 +129,8 @@ async def archivos(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 async def citas(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if not await _check_auth(update):
+        return
     from services.tools import get_modo_citas, set_modo_citas
 
     user_id = str(update.effective_user.id)
@@ -126,9 +154,12 @@ async def citas(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 async def memorias(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if not await _check_auth(update):
+        return
     from services.memory_service import listar_memorias
 
-    resultado = listar_memorias()
+    user_id = str(update.effective_user.id)
+    resultado = listar_memorias(user_id)
     if len(resultado) > 4096:
         for i in range(0, len(resultado), 4096):
             await update.message.reply_text(resultado[i : i + 4096])
@@ -137,6 +168,8 @@ async def memorias(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 async def recordatorios_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if not await _check_auth(update):
+        return
     from services.reminder_service import listar_recordatorios
 
     user_id = str(update.effective_user.id)
@@ -149,6 +182,8 @@ async def recordatorios_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 async def metas_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if not await _check_auth(update):
+        return
     from services.goals_service import listar_metas
 
     user_id = str(update.effective_user.id)
@@ -161,15 +196,18 @@ async def metas_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 async def logs_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if not await _check_auth(update):
+        return
     from services.log_service import obtener_log
 
-    # Si pasan una fecha como argumento: /logs 2024-03-15
+    user_id = str(update.effective_user.id)
     fecha = context.args[0] if context.args else None
-    resultado = obtener_log(fecha)
+    resultado = obtener_log(fecha, user_id=user_id)
     if len(resultado) > 4096:
-        # Enviar solo las ultimas lineas si es muy largo
-        resultado = resultado[-4090:] + "\n..."
-    await update.message.reply_text(resultado)
+        for i in range(0, len(resultado), 4096):
+            await update.message.reply_text(resultado[i : i + 4096])
+    else:
+        await update.message.reply_text(resultado)
 
 
 async def _verificar_recordatorios(context: ContextTypes.DEFAULT_TYPE):
@@ -182,8 +220,7 @@ async def _verificar_recordatorios(context: ContextTypes.DEFAULT_TYPE):
         try:
             await context.bot.send_message(
                 chat_id=r["chat_id"],
-                text=f"🔔 *Recordatorio*\n\n{r['contenido']}",
-                parse_mode="Markdown",
+                text=f"Recordatorio\n\n{r['contenido']}",
             )
             log_service.log_recordatorio(r["user_id"], r["id"], r["contenido"])
         except Exception as e:
@@ -192,12 +229,14 @@ async def _verificar_recordatorios(context: ContextTypes.DEFAULT_TYPE):
 
 
 async def ayuda(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if not await _check_auth(update):
+        return
     from services.tools import get_modo_citas
 
     user_id = str(update.effective_user.id)
     modo = "Activo" if get_modo_citas(user_id) else "Inactivo"
     await update.message.reply_text(
-        "*Comandos de Syn*\n\n"
+        "Comandos de Syn\n\n"
         "/inicio - Mensaje de bienvenida\n"
         "/estado - Estado del sistema\n"
         "/archivos - Ver archivos guardados\n"
@@ -217,7 +256,6 @@ async def ayuda(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "- Pedirme buscar algo en internet\n"
         "- Decirme 'activa citas' o 'desactiva citas'\n"
         "- Escribir cualquier pregunta",
-        parse_mode="Markdown",
     )
 
 

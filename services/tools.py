@@ -547,7 +547,7 @@ TOOLS = [
             "name": "agregar_paso",
             "description": (
                 "Agrega un nuevo paso a una meta existente. "
-                "Usa esta herramienta cuando el usuario quiera añadir pasos adicionales a una meta."
+                "Usa esta herramienta cuando el usuario quiera anadir pasos adicionales a una meta."
             ),
             "parameters": {
                 "type": "object",
@@ -604,7 +604,7 @@ TOOLS = [
                         "type": "string",
                         "description": (
                             "La consulta de busqueda. Escribe una busqueda clara y especifica. "
-                            "Puedes escribir en español o ingles segun convenga para mejores resultados."
+                            "Puedes escribir en espanol o ingles segun convenga para mejores resultados."
                         ),
                     },
                     "max_resultados": {
@@ -686,16 +686,12 @@ TOOLS = [
             "parameters": {
                 "type": "object",
                 "properties": {
-                    "user_id": {
-                        "type": "string",
-                        "description": "ID del usuario",
-                    },
                     "activar": {
                         "type": "boolean",
                         "description": "True para activar, False para desactivar",
                     },
                 },
-                "required": ["user_id", "activar"],
+                "required": ["activar"],
             },
         },
     },
@@ -705,13 +701,15 @@ TOOLS = [
 def ejecutar_herramienta(nombre: str, argumentos: dict, user_id: str = "", chat_id: str = "") -> str:
     """Ejecuta una herramienta por nombre y devuelve el resultado como texto.
 
-    user_id y chat_id se inyectan automaticamente para herramientas que lo necesiten.
+    user_id y chat_id se inyectan automaticamente. SIEMPRE se usa el user_id real,
+    nunca el que pueda venir en los argumentos del LLM (seguridad).
     """
-    # Inyectar user_id y chat_id en argumentos para herramientas que lo necesiten
-    argumentos["user_id"] = argumentos.get("user_id") or user_id
-    argumentos["chat_id"] = argumentos.get("chat_id") or chat_id
+    # SEGURIDAD: siempre usar el user_id/chat_id real, nunca el del LLM
+    argumentos["user_id"] = user_id
+    argumentos["chat_id"] = chat_id
+
     if nombre == "descargar_drive":
-        resultado = drive_service.descargar_drive(argumentos["url"], argumentos.get("nombre"))
+        resultado = drive_service.descargar_drive(user_id, argumentos["url"], argumentos.get("nombre"))
         if resultado["ok"]:
             return json.dumps({
                 "estado": "descargado",
@@ -724,6 +722,7 @@ def ejecutar_herramienta(nombre: str, argumentos: dict, user_id: str = "", chat_
 
     elif nombre == "registrar_archivo":
         return drive_service.agregar_al_registro(
+            user_id,
             argumentos["nombre"],
             argumentos["ruta"],
             argumentos["descripcion"],
@@ -733,27 +732,28 @@ def ejecutar_herramienta(nombre: str, argumentos: dict, user_id: str = "", chat_
         )
 
     elif nombre == "listar_archivos":
-        return drive_service.listar_registro()
+        return drive_service.listar_registro(user_id)
 
     elif nombre == "buscar_archivo":
-        return drive_service.buscar_en_registro(argumentos["termino"])
+        return drive_service.buscar_en_registro(user_id, argumentos["termino"])
 
     elif nombre == "editar_descripcion":
         return drive_service.editar_descripcion(
-            argumentos["nombre"], argumentos["nueva_descripcion"]
+            user_id, argumentos["nombre"], argumentos["nueva_descripcion"]
         )
 
     elif nombre == "eliminar_archivo":
-        return drive_service.eliminar_del_registro(argumentos["nombre"])
+        return drive_service.eliminar_del_registro(user_id, argumentos["nombre"])
 
     elif nombre == "leer_archivo":
         resultado = drive_service.leer_archivo(
-            argumentos["nombre"], argumentos.get("max_lineas", 100)
+            user_id, argumentos["nombre"], argumentos.get("max_lineas", 100)
         )
         return json.dumps(resultado, ensure_ascii=False)
 
     elif nombre == "captura_prueba":
         resultado = drive_service.generar_captura(
+            user_id,
             argumentos["nombre_archivo"],
             argumentos["texto_cita"],
             argumentos.get("contexto", ""),
@@ -768,22 +768,22 @@ def ejecutar_herramienta(nombre: str, argumentos: dict, user_id: str = "", chat_
 
     elif nombre == "guardar_memoria":
         return memory_service.agregar_memoria(
-            argumentos["contenido"], argumentos.get("categoria", "general")
+            user_id, argumentos["contenido"], argumentos.get("categoria", "general")
         )
 
     elif nombre == "listar_memorias":
-        return memory_service.listar_memorias(argumentos.get("categoria"))
+        return memory_service.listar_memorias(user_id, argumentos.get("categoria"))
 
     elif nombre == "eliminar_memoria":
-        return memory_service.eliminar_memoria(argumentos["memoria_id"])
+        return memory_service.eliminar_memoria(user_id, argumentos["memoria_id"])
 
     elif nombre == "buscar_memoria":
-        return memory_service.buscar_memorias(argumentos["termino"])
+        return memory_service.buscar_memorias(user_id, argumentos["termino"])
 
     elif nombre == "crear_recordatorio":
         return reminder_service.crear_recordatorio(
-            user_id=argumentos.get("user_id", ""),
-            chat_id=argumentos.get("chat_id", ""),
+            user_id=user_id,
+            chat_id=chat_id,
             contenido=argumentos["contenido"],
             tipo=argumentos["tipo"],
             hora=argumentos["hora"],
@@ -793,21 +793,17 @@ def ejecutar_herramienta(nombre: str, argumentos: dict, user_id: str = "", chat_
         )
 
     elif nombre == "listar_recordatorios":
-        return reminder_service.listar_recordatorios(argumentos.get("user_id", ""))
+        return reminder_service.listar_recordatorios(user_id)
 
     elif nombre == "eliminar_recordatorio":
-        return reminder_service.eliminar_recordatorio(
-            argumentos.get("user_id", ""), argumentos["recordatorio_id"]
-        )
+        return reminder_service.eliminar_recordatorio(user_id, argumentos["recordatorio_id"])
 
     elif nombre == "toggle_recordatorio":
-        return reminder_service.toggle_recordatorio(
-            argumentos.get("user_id", ""), argumentos["recordatorio_id"]
-        )
+        return reminder_service.toggle_recordatorio(user_id, argumentos["recordatorio_id"])
 
     elif nombre == "crear_meta":
         return goals_service.crear_meta(
-            user_id=argumentos.get("user_id", ""),
+            user_id=user_id,
             titulo=argumentos["titulo"],
             descripcion=argumentos["descripcion"],
             pasos=argumentos["pasos"],
@@ -815,19 +811,14 @@ def ejecutar_herramienta(nombre: str, argumentos: dict, user_id: str = "", chat_
         )
 
     elif nombre == "ver_meta":
-        return goals_service.ver_meta(
-            argumentos.get("user_id", ""), argumentos["meta_id"]
-        )
+        return goals_service.ver_meta(user_id, argumentos["meta_id"])
 
     elif nombre == "listar_metas":
-        return goals_service.listar_metas(
-            argumentos.get("user_id", ""),
-            argumentos.get("solo_activas", True),
-        )
+        return goals_service.listar_metas(user_id, argumentos.get("solo_activas", True))
 
     elif nombre == "actualizar_paso":
         return goals_service.actualizar_paso(
-            user_id=argumentos.get("user_id", ""),
+            user_id=user_id,
             meta_id=argumentos["meta_id"],
             paso_num=argumentos["paso_num"],
             nuevo_estado=argumentos["nuevo_estado"],
@@ -835,16 +826,10 @@ def ejecutar_herramienta(nombre: str, argumentos: dict, user_id: str = "", chat_
         )
 
     elif nombre == "agregar_paso":
-        return goals_service.agregar_paso(
-            argumentos.get("user_id", ""),
-            argumentos["meta_id"],
-            argumentos["descripcion"],
-        )
+        return goals_service.agregar_paso(user_id, argumentos["meta_id"], argumentos["descripcion"])
 
     elif nombre == "eliminar_meta":
-        return goals_service.eliminar_meta(
-            argumentos.get("user_id", ""), argumentos["meta_id"]
-        )
+        return goals_service.eliminar_meta(user_id, argumentos["meta_id"])
 
     elif nombre == "buscar_web":
         max_res = min(argumentos.get("max_resultados", 5), 10)
@@ -855,14 +840,13 @@ def ejecutar_herramienta(nombre: str, argumentos: dict, user_id: str = "", chat_
         return web_search_service.buscar_noticias(argumentos["consulta"], max_res)
 
     elif nombre == "ver_log":
-        return log_service.obtener_log(argumentos.get("fecha"))
+        return log_service.obtener_log(argumentos.get("fecha"), user_id=user_id)
 
     elif nombre == "listar_logs":
         return log_service.listar_logs()
 
     elif nombre == "toggle_modo_citas":
         activar = argumentos["activar"]
-        user_id = argumentos["user_id"]
         set_modo_citas(user_id, activar)
         estado = "activado" if activar else "desactivado"
         return f"Modo de citas con prueba {estado} para este usuario."

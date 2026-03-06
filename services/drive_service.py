@@ -4,30 +4,31 @@ import json
 import gdown
 import textwrap
 from pathlib import Path
+from datetime import datetime
 from PIL import Image, ImageDraw, ImageFont
 
-DRIVE_DIR = Path("data/drive")
-REGISTRO_PATH = Path("data/registro.json")
-CAPTURAS_DIR = Path("data/capturas")
+from services.json_store import cargar_json, guardar_json, obtener_lock, user_data_path
+from services.timezone_utils import ahora
 
 
-def _asegurar_dirs():
-    DRIVE_DIR.mkdir(parents=True, exist_ok=True)
-    if not REGISTRO_PATH.exists():
-        REGISTRO_PATH.parent.mkdir(parents=True, exist_ok=True)
-        REGISTRO_PATH.write_text("[]", encoding="utf-8")
+def _drive_dir(user_id: str) -> Path:
+    return user_data_path(user_id, "drive")
 
 
-def _cargar_registro() -> list[dict]:
-    _asegurar_dirs()
-    return json.loads(REGISTRO_PATH.read_text(encoding="utf-8"))
+def _registro_path(user_id: str) -> Path:
+    return user_data_path(user_id, "registro.json")
 
 
-def _guardar_registro(registro: list[dict]):
-    _asegurar_dirs()
-    REGISTRO_PATH.write_text(
-        json.dumps(registro, ensure_ascii=False, indent=2), encoding="utf-8"
-    )
+def _capturas_dir(user_id: str) -> Path:
+    return user_data_path(user_id, "capturas")
+
+
+def _cargar_registro(user_id: str) -> list[dict]:
+    return cargar_json(_registro_path(user_id))
+
+
+def _guardar_registro(user_id: str, registro: list[dict]):
+    guardar_json(_registro_path(user_id), registro)
 
 
 def _extraer_id_drive(url: str) -> str | None:
@@ -45,21 +46,21 @@ def _extraer_id_drive(url: str) -> str | None:
     return None
 
 
-def descargar_drive(url: str, nombre: str | None = None) -> dict:
+def descargar_drive(user_id: str, url: str, nombre: str | None = None) -> dict:
     """Descarga un archivo o carpeta de Google Drive publico."""
-    _asegurar_dirs()
+    drive_dir = _drive_dir(user_id)
+    drive_dir.mkdir(parents=True, exist_ok=True)
 
     drive_id = _extraer_id_drive(url)
     if not drive_id:
         return {"ok": False, "error": "No se pudo extraer el ID del link de Drive."}
 
-    destino = str(DRIVE_DIR)
-
     es_carpeta = "/folders/" in url
 
     try:
         if es_carpeta:
-            carpeta_destino = DRIVE_DIR / (nombre or drive_id)
+            nombre_sanitizado = re.sub(r'[^\w.-]', '_', nombre or drive_id)
+            carpeta_destino = drive_dir / nombre_sanitizado
             carpeta_destino.mkdir(parents=True, exist_ok=True)
             gdown.download_folder(
                 url=url, output=str(carpeta_destino), quiet=True
@@ -67,7 +68,7 @@ def descargar_drive(url: str, nombre: str | None = None) -> dict:
             archivos = [f.name for f in carpeta_destino.rglob("*") if f.is_file()]
             ruta_local = str(carpeta_destino)
         else:
-            archivo = gdown.download(id=drive_id, output=destino + "/", quiet=True)
+            archivo = gdown.download(id=drive_id, output=str(drive_dir) + "/", quiet=True)
             if not archivo:
                 return {"ok": False, "error": "No se pudo descargar el archivo. Verifica que el link sea publico."}
             archivos = [os.path.basename(archivo)]
@@ -85,34 +86,36 @@ def descargar_drive(url: str, nombre: str | None = None) -> dict:
 
 
 def agregar_al_registro(
-    nombre: str, ruta: str, descripcion: str, url_drive: str, tipo: str, archivos: list[str]
+    user_id: str, nombre: str, ruta: str, descripcion: str,
+    url_drive: str, tipo: str, archivos: list[str],
 ) -> str:
     """Agrega una entrada al registro de archivos con su descripcion."""
-    registro = _cargar_registro()
+    path = _registro_path(user_id)
+    lock = obtener_lock(path)
+    with lock:
+        registro = cargar_json(path)
+        for entrada in registro:
+            if entrada.get("url_drive") == url_drive:
+                entrada["descripcion"] = descripcion
+                entrada["nombre"] = nombre
+                guardar_json(path, registro)
+                return f"Registro actualizado: {nombre}"
 
-    # Verificar si ya existe
-    for entrada in registro:
-        if entrada.get("url_drive") == url_drive:
-            entrada["descripcion"] = descripcion
-            entrada["nombre"] = nombre
-            _guardar_registro(registro)
-            return f"Registro actualizado: {nombre}"
-
-    registro.append({
-        "nombre": nombre,
-        "ruta": ruta,
-        "descripcion": descripcion,
-        "url_drive": url_drive,
-        "tipo": tipo,
-        "archivos": archivos,
-    })
-    _guardar_registro(registro)
+        registro.append({
+            "nombre": nombre,
+            "ruta": ruta,
+            "descripcion": descripcion,
+            "url_drive": url_drive,
+            "tipo": tipo,
+            "archivos": archivos,
+        })
+        guardar_json(path, registro)
     return f"Registrado: {nombre} ({len(archivos)} archivo(s))"
 
 
-def listar_registro() -> str:
+def listar_registro(user_id: str) -> str:
     """Devuelve el contenido del registro en texto legible."""
-    registro = _cargar_registro()
+    registro = _cargar_registro(user_id)
     if not registro:
         return "El registro esta vacio. No hay archivos guardados."
 
@@ -128,9 +131,9 @@ def listar_registro() -> str:
     return "\n\n".join(lineas)
 
 
-def buscar_en_registro(termino: str) -> str:
+def buscar_en_registro(user_id: str, termino: str) -> str:
     """Busca archivos en el registro por nombre o descripcion."""
-    registro = _cargar_registro()
+    registro = _cargar_registro(user_id)
     termino_lower = termino.lower()
     resultados = []
 
@@ -149,34 +152,36 @@ def buscar_en_registro(termino: str) -> str:
     return "Resultados:\n" + "\n".join(resultados)
 
 
-def editar_descripcion(nombre: str, nueva_descripcion: str) -> str:
+def editar_descripcion(user_id: str, nombre: str, nueva_descripcion: str) -> str:
     """Edita la descripcion de un archivo en el registro."""
-    registro = _cargar_registro()
-
-    for entrada in registro:
-        if entrada["nombre"].lower() == nombre.lower():
-            entrada["descripcion"] = nueva_descripcion
-            _guardar_registro(registro)
-            return f"Descripcion de '{nombre}' actualizada."
-
+    path = _registro_path(user_id)
+    lock = obtener_lock(path)
+    with lock:
+        registro = cargar_json(path)
+        for entrada in registro:
+            if entrada["nombre"].lower() == nombre.lower():
+                entrada["descripcion"] = nueva_descripcion
+                guardar_json(path, registro)
+                return f"Descripcion de '{nombre}' actualizada."
     return f"No se encontro '{nombre}' en el registro."
 
 
-def eliminar_del_registro(nombre: str) -> str:
+def eliminar_del_registro(user_id: str, nombre: str) -> str:
     """Elimina una entrada del registro (no borra los archivos)."""
-    registro = _cargar_registro()
-    nuevo = [e for e in registro if e["nombre"].lower() != nombre.lower()]
-
-    if len(nuevo) == len(registro):
-        return f"No se encontro '{nombre}' en el registro."
-
-    _guardar_registro(nuevo)
+    path = _registro_path(user_id)
+    lock = obtener_lock(path)
+    with lock:
+        registro = cargar_json(path)
+        nuevo = [e for e in registro if e["nombre"].lower() != nombre.lower()]
+        if len(nuevo) == len(registro):
+            return f"No se encontro '{nombre}' en el registro."
+        guardar_json(path, nuevo)
     return f"'{nombre}' eliminado del registro."
 
 
-def leer_archivo(nombre: str, max_lineas: int = 100) -> dict:
+def leer_archivo(user_id: str, nombre: str, max_lineas: int = 100) -> dict:
     """Lee el contenido de un archivo registrado para que el LLM pueda citarlo."""
-    registro = _cargar_registro()
+    registro = _cargar_registro(user_id)
 
     entrada = None
     for e in registro:
@@ -188,6 +193,15 @@ def leer_archivo(nombre: str, max_lineas: int = 100) -> dict:
         return {"ok": False, "error": f"No se encontro '{nombre}' en el registro."}
 
     ruta = Path(entrada["ruta"])
+
+    # Validar que la ruta este dentro del directorio del usuario
+    try:
+        ruta_resuelta = ruta.resolve()
+        base_segura = _drive_dir(user_id).resolve()
+        if not ruta_resuelta.is_relative_to(base_segura):
+            return {"ok": False, "error": "Ruta de archivo no valida."}
+    except (ValueError, OSError):
+        return {"ok": False, "error": "Ruta de archivo no valida."}
 
     # Si es carpeta, listar archivos y leer los primeros
     if entrada["tipo"] == "carpeta":
@@ -222,6 +236,7 @@ def leer_archivo(nombre: str, max_lineas: int = 100) -> dict:
         try:
             import fitz  # PyMuPDF
             doc = fitz.open(str(ruta))
+            total_pags = len(doc)
             paginas = []
             for i, pagina in enumerate(doc):
                 if i >= 10:
@@ -233,7 +248,7 @@ def leer_archivo(nombre: str, max_lineas: int = 100) -> dict:
                 "nombre": entrada["nombre"],
                 "tipo": "pdf",
                 "contenido": "\n\n".join(paginas),
-                "total_paginas": len(doc) if hasattr(doc, '__len__') else "desconocido",
+                "total_paginas": total_pags,
                 "descripcion": entrada["descripcion"],
             }
         except ImportError:
@@ -273,21 +288,18 @@ def _fuente():
 
 
 def generar_captura(
+    user_id: str,
     nombre_archivo: str,
     texto_cita: str,
     contexto: str = "",
 ) -> dict:
-    """Genera una imagen/captura del texto citado de un archivo.
-
-    Renderiza el texto en una imagen limpia y legible que sirve como prueba
-    de la fuente de la informacion.
-    """
-    CAPTURAS_DIR.mkdir(parents=True, exist_ok=True)
+    """Genera una imagen/captura del texto citado de un archivo."""
+    capturas_dir = _capturas_dir(user_id)
+    capturas_dir.mkdir(parents=True, exist_ok=True)
 
     fuente = _fuente()
     fuente_titulo = _fuente()
 
-    # Configuracion de la imagen
     margen = 30
     ancho_max_chars = 80
     color_fondo = (30, 30, 35)
@@ -296,7 +308,6 @@ def generar_captura(
     color_borde = (60, 60, 70)
     color_cita = (180, 255, 180)
 
-    # Preparar texto
     lineas = []
     lineas.append(f"ARCHIVO: {nombre_archivo}")
     lineas.append("=" * min(len(f"ARCHIVO: {nombre_archivo}"), ancho_max_chars))
@@ -312,22 +323,18 @@ def generar_captura(
     lineas.append("-" * 40)
     lineas.append(f"Fuente: {nombre_archivo} | Captura generada por Syn")
 
-    # Calcular tamano
     alto_linea = 22
     alto_total = margen * 2 + len(lineas) * alto_linea + 20
     ancho_total = margen * 2 + ancho_max_chars * 10
 
-    # Crear imagen
     img = Image.new("RGB", (ancho_total, alto_total), color_fondo)
     draw = ImageDraw.Draw(img)
 
-    # Borde
     draw.rectangle(
         [5, 5, ancho_total - 6, alto_total - 6],
         outline=color_borde, width=2
     )
 
-    # Dibujar texto
     y = margen
     for i, linea in enumerate(lineas):
         if i == 0:
@@ -341,12 +348,13 @@ def generar_captura(
         draw.text((margen, y), linea, fill=color, font=fuente)
         y += alto_linea
 
-    # Guardar
-    nombre_img = f"cita_{nombre_archivo.replace(' ', '_')}_{os.getpid()}.png"
-    ruta_img = CAPTURAS_DIR / nombre_img
+    # Nombre de archivo sanitizado + timestamp para evitar colisiones
+    nombre_sanitizado = re.sub(r'[^\w.-]', '_', nombre_archivo)
+    ts = ahora().strftime("%Y%m%d_%H%M%S_%f")
+    nombre_img = f"cita_{nombre_sanitizado}_{ts}.png"
+    ruta_img = capturas_dir / nombre_img
     img.save(str(ruta_img), "PNG")
 
-    # Verificar que la imagen se genero bien
     try:
         img_check = Image.open(str(ruta_img))
         w, h = img_check.size
