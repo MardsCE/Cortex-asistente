@@ -98,6 +98,7 @@ Cada instancia tiene su propio volumen Docker para datos persistentes (DB, archi
 | `/inicio` | Mensaje de bienvenida |
 | `/estado` | Estado del sistema |
 | `/archivos` | Ver archivos guardados |
+| `/citas` | Activar/desactivar modo citas con prueba |
 | `/limpiar` | Limpiar historial |
 | `/ayuda` | Ver comandos |
 | _(cualquier texto)_ | Hablar con Syn directamente |
@@ -112,6 +113,15 @@ Syn puede descargar y gestionar archivos de Google Drive publicos. Solo pega un 
 - Puedes pedirle que busque, edite descripciones o elimine archivos
 
 Ejemplo: _"Guarda esto: https://drive.google.com/..."_ y Syn se encarga del resto.
+
+## Modo Citas con Prueba
+
+Syn SIEMPRE cita de que archivo saco la informacion. Ademas, tiene un modo de prueba visual:
+
+- **Activar:** `/citas` o decirle _"activa citas"_
+- **Desactivar:** `/citas` de nuevo o _"desactiva citas"_
+
+Cuando esta activo, Syn genera una captura/imagen del fragmento exacto del archivo que esta citando y la envia como foto en Telegram. Asi tienes prueba visual de la fuente.
 
 ## Endpoints API
 

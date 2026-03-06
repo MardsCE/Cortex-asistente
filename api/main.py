@@ -12,6 +12,7 @@ class ChatRequest(BaseModel):
 
 class ChatResponse(BaseModel):
     response: str
+    imagenes: list[str] = []
 
 
 @app.get("/")
@@ -26,5 +27,5 @@ async def health():
 
 @app.post("/chat", response_model=ChatResponse)
 async def chat(request: ChatRequest):
-    response = await openrouter_service.ask(request.message, request.user_id)
-    return ChatResponse(response=response)
+    resultado = await openrouter_service.ask(request.message, request.user_id)
+    return ChatResponse(response=resultado["texto"], imagenes=resultado.get("imagenes", []))
