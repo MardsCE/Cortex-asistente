@@ -1,0 +1,14 @@
+services:
+  cortex-1:
+    build: .
+    container_name: cortex-1
+    env_file: .env.cortex-1
+    ports:
+      - "8001:8000"
+    volumes:
+      - cortex-1-data:/app/data
+    restart: unless-stopped
+
+volumes:
+  cortex-1-data:
+
