@@ -1,45 +1,38 @@
 #!/bin/bash
 set -e
 
-NAME=${1:?"Uso: bash add-instance.sh <nombre> <puerto>"}
-PORT=${2:?"Uso: bash add-instance.sh <nombre> <puerto>"}
+NAME=${1:?"Uso: bash add-instance.sh <nombre> <puerto>  (ej: bash add-instance.sh cortex-2 8002)"}
+PORT=${2:?"Uso: bash add-instance.sh <nombre> <puerto>  (ej: bash add-instance.sh cortex-2 8002)"}
 ENV_FILE=".env.${NAME}"
+INSTANCES_FILE=".instances"
 
-if [ -f "$ENV_FILE" ]; then
-    echo "[!] El archivo $ENV_FILE ya existe."
-    echo "    Edita $ENV_FILE y luego ejecuta:"
-    echo "    docker compose --profile $NAME up -d --build"
+# Verificar que no exista ya
+if grep -q "^${NAME}:" "$INSTANCES_FILE" 2>/dev/null; then
+    echo "[!] La instancia '${NAME}' ya existe."
+    echo "    Edita $ENV_FILE y ejecuta: docker compose up -d --build ${NAME}"
     exit 1
 fi
 
 # Crear .env para la nueva instancia
-cp .env.example "$ENV_FILE"
+if [ ! -f "$ENV_FILE" ]; then
+    cp .env.example "$ENV_FILE"
+    echo "[+] Archivo $ENV_FILE creado."
+else
+    echo "[i] $ENV_FILE ya existe, se conserva."
+fi
+
+# Registrar la instancia
+echo "${NAME}:${PORT}" >> "$INSTANCES_FILE"
+
+# Regenerar docker-compose.yml
+bash generate-compose.sh
+
 echo ""
-echo "[+] Archivo $ENV_FILE creado."
-echo "    Edita con tus tokens: nano $ENV_FILE"
-echo ""
-
-# Agregar servicio al docker-compose.yml
-cat >> docker-compose.yml <<EOF
-
-  ${NAME}:
-    build: .
-    container_name: ${NAME}
-    env_file: ${ENV_FILE}
-    ports:
-      - "${PORT}:8000"
-    volumes:
-      - ${NAME}-data:/app/data
-    restart: unless-stopped
-EOF
-
-# Agregar volumen
-# Buscar la linea "volumes:" al final y agregar
-sed -i "/^volumes:/a\\  ${NAME}-data:" docker-compose.yml
-
-echo "[+] Servicio '${NAME}' agregado en puerto ${PORT}."
+echo "[+] Instancia '${NAME}' registrada en puerto ${PORT}."
 echo ""
 echo "    Siguiente paso:"
 echo "    1. Edita $ENV_FILE con los tokens de esta instancia"
-echo "    2. docker compose up -d --build ${NAME}"
+echo "       nano $ENV_FILE"
+echo "    2. Levanta la instancia:"
+echo "       docker compose up -d --build ${NAME}"
 echo ""
