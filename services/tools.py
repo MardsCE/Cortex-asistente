@@ -1,5 +1,5 @@
 import json
-from services import drive_service, memory_service, web_search_service, reminder_service, goals_service
+from services import drive_service, memory_service, web_search_service, reminder_service, goals_service, log_service
 
 # Estado del modo citas por usuario: {user_id: bool}
 _modo_citas: dict[str, bool] = {}
@@ -643,6 +643,40 @@ TOOLS = [
     {
         "type": "function",
         "function": {
+            "name": "ver_log",
+            "description": (
+                "Muestra el log de actividad de un dia especifico. "
+                "Usa esta herramienta cuando el usuario quiera ver que hizo el bot, "
+                "que herramientas uso, que mensajes proceso, o revisar la actividad de un dia."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "fecha": {
+                        "type": "string",
+                        "description": "Fecha del log en formato YYYY-MM-DD. Si no se indica, muestra el log de hoy.",
+                    },
+                },
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "listar_logs",
+            "description": (
+                "Lista los archivos de log disponibles con sus fechas. "
+                "Usa esta herramienta cuando el usuario quiera saber que dias tienen registro."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {},
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
             "name": "toggle_modo_citas",
             "description": (
                 "Activa o desactiva el modo de citas con prueba para el usuario. "
@@ -819,6 +853,12 @@ def ejecutar_herramienta(nombre: str, argumentos: dict, user_id: str = "", chat_
     elif nombre == "buscar_noticias":
         max_res = min(argumentos.get("max_resultados", 5), 10)
         return web_search_service.buscar_noticias(argumentos["consulta"], max_res)
+
+    elif nombre == "ver_log":
+        return log_service.obtener_log(argumentos.get("fecha"))
+
+    elif nombre == "listar_logs":
+        return log_service.listar_logs()
 
     elif nombre == "toggle_modo_citas":
         activar = argumentos["activar"]

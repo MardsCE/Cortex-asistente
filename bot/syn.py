@@ -21,6 +21,7 @@ async def inicio(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "/memorias - Ver memorias guardadas\n"
         "/recordatorios - Ver recordatorios activos\n"
         "/metas - Ver metas activas\n"
+        "/logs - Ver actividad del dia\n"
         "/citas - Activar/desactivar modo citas con prueba\n"
         "/limpiar - Limpiar historial\n"
         "/ayuda - Ver comandos",
@@ -159,9 +160,22 @@ async def metas_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text(resultado)
 
 
+async def logs_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    from services.log_service import obtener_log
+
+    # Si pasan una fecha como argumento: /logs 2024-03-15
+    fecha = context.args[0] if context.args else None
+    resultado = obtener_log(fecha)
+    if len(resultado) > 4096:
+        # Enviar solo las ultimas lineas si es muy largo
+        resultado = resultado[-4090:] + "\n..."
+    await update.message.reply_text(resultado)
+
+
 async def _verificar_recordatorios(context: ContextTypes.DEFAULT_TYPE):
     """Job que se ejecuta cada minuto para enviar recordatorios pendientes."""
     from services.reminder_service import obtener_recordatorios_pendientes
+    from services import log_service
 
     pendientes = obtener_recordatorios_pendientes()
     for r in pendientes:
@@ -171,7 +185,9 @@ async def _verificar_recordatorios(context: ContextTypes.DEFAULT_TYPE):
                 text=f"🔔 *Recordatorio*\n\n{r['contenido']}",
                 parse_mode="Markdown",
             )
+            log_service.log_recordatorio(r["user_id"], r["id"], r["contenido"])
         except Exception as e:
+            log_service.log_error(r.get("user_id", "?"), "recordatorio", str(e))
             print(f"[Syn] Error enviando recordatorio #{r['id']}: {e}")
 
 
@@ -188,6 +204,7 @@ async def ayuda(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "/memorias - Ver memorias guardadas\n"
         "/recordatorios - Ver recordatorios programados\n"
         "/metas - Ver metas activas\n"
+        "/logs - Ver actividad del dia\n"
         f"/citas - Toggle modo citas con prueba (actual: {modo})\n"
         "/limpiar - Limpiar historial\n"
         "/ayuda - Ver este mensaje\n\n"
@@ -215,12 +232,17 @@ def run_bot():
     app.add_handler(CommandHandler("memorias", memorias))
     app.add_handler(CommandHandler("recordatorios", recordatorios_cmd))
     app.add_handler(CommandHandler("metas", metas_cmd))
+    app.add_handler(CommandHandler("logs", logs_cmd))
     app.add_handler(CommandHandler("limpiar", limpiar))
     app.add_handler(CommandHandler("ayuda", ayuda))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, mensaje))
 
     # Scheduler: verificar recordatorios cada 60 segundos
     app.job_queue.run_repeating(_verificar_recordatorios, interval=60, first=10)
+
+    from services import log_service
+    log_service.log_sistema("Bot de Telegram iniciado")
+    log_service.log_sistema("Scheduler de recordatorios activo (cada 60s)")
 
     print("[Syn] Bot de Telegram iniciado.")
     print("[Syn] Scheduler de recordatorios activo (cada 60s).")

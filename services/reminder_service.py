@@ -43,6 +43,20 @@ def crear_recordatorio(
 
     Tipos: unico, diario, semanal, cada_x_dias
     """
+    # Validaciones estrictas - rechazar si falta informacion
+    if not contenido or not contenido.strip():
+        return "ERROR: Falta el contenido del recordatorio. Pregunta al usuario que quiere recordar."
+    if not hora or not hora.strip():
+        return "ERROR: Falta la hora. Pregunta al usuario a que hora quiere el recordatorio (formato HH:MM)."
+    if tipo not in ("unico", "diario", "semanal", "cada_x_dias"):
+        return f"ERROR: Tipo '{tipo}' no valido. Debe ser: unico, diario, semanal o cada_x_dias."
+    if tipo == "unico" and not fecha_unica:
+        return "ERROR: Para recordatorio unico falta la fecha (YYYY-MM-DD). Pregunta al usuario."
+    if tipo == "semanal" and dia_semana is None:
+        return "ERROR: Para recordatorio semanal falta el dia de la semana (0=lunes a 6=domingo). Pregunta al usuario."
+    if tipo == "cada_x_dias" and not dias_intervalo:
+        return "ERROR: Para recordatorio cada X dias falta el intervalo. Pregunta al usuario cada cuantos dias."
+
     recordatorios = _cargar()
     nuevo = {
         "id": _siguiente_id(recordatorios),
