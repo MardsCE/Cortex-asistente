@@ -131,9 +131,8 @@ SYSTEM_PROMPT = (
     "- Si no encuentras la informacion en ningun archivo, dilo claramente. "
     "No inventes ni supongas contenido.\n"
     "- MODO CITAS CON PRUEBA: cuando esta ACTIVO, SIEMPRE que cites datos de un archivo "
-    "debes llamar a captura_prueba con el fragmento exacto del texto original. "
-    "Esto es OBLIGATORIO, no opcional. Si citas informacion y no generas la captura, "
-    "estas incumpliendo el modo. Genera la captura SIEMPRE que el modo este activo.\n"
+    "llama a captura_prueba para generar una imagen real del documento. "
+    "Funciona con PDFs, Excel, y otros formatos. Genera UNA captura por archivo citado.\n"
     "- El usuario puede activar/desactivar el modo de pruebas diciendo cosas como "
     "'activa citas', 'modo prueba', 'desactiva citas', etc.\n\n"
 
@@ -220,7 +219,7 @@ SYSTEM_PROMPT = (
 )
 
 MAX_HISTORY = 20
-MAX_TOOL_CALLS = 8
+MAX_TOOL_CALLS = 15
 
 
 class OpenRouterService:
@@ -258,6 +257,19 @@ class OpenRouterService:
         if len(history) > MAX_HISTORY:
             history[:] = history[-MAX_HISTORY:]
 
+    @staticmethod
+    def _limpiar_texto(texto: str) -> str:
+        """Elimina bloques JSON crudos que el modelo a veces vuelca en la respuesta."""
+        import re
+        # Eliminar bloques que parecen tool calls crudos (JSON con nombre_archivo, texto_cita, etc.)
+        texto = re.sub(
+            r'\{\s*"(?:contexto|nombre_archivo|texto_cita)".*?\}\s*',
+            '', texto, flags=re.DOTALL
+        )
+        # Limpiar saltos de linea excesivos que quedan
+        texto = re.sub(r'\n{3,}', '\n\n', texto)
+        return texto.strip()
+
     async def ask(self, message: str, user_id: str, chat_id: str = "") -> dict:
         """Procesa un mensaje. Retorna dict con 'texto' y opcionalmente 'imagenes'."""
         log_service.log_mensaje_usuario(user_id, message)
@@ -283,7 +295,7 @@ class OpenRouterService:
             choice = response.choices[0]
 
             if not choice.message.tool_calls:
-                texto = choice.message.content or "Sin respuesta."
+                texto = self._limpiar_texto(choice.message.content or "Sin respuesta.")
                 history.append({"role": "assistant", "content": texto})
                 self._recortar(history)
                 log_service.log_respuesta(user_id, texto)
@@ -342,7 +354,7 @@ class OpenRouterService:
             model=settings.OPENROUTER_MODEL,
             messages=messages,
         )
-        texto = response.choices[0].message.content or "Sin respuesta."
+        texto = self._limpiar_texto(response.choices[0].message.content or "Sin respuesta.")
         history.append({"role": "assistant", "content": texto})
         self._recortar(history)
         log_service.log_respuesta(user_id, texto)

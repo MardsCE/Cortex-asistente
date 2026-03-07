@@ -2,11 +2,10 @@ import io
 import os
 import re
 import json
-import textwrap
 import logging
 from pathlib import Path
 from datetime import datetime
-from PIL import Image, ImageDraw, ImageFont
+from PIL import Image
 
 from googleapiclient.discovery import build
 from googleapiclient.http import MediaIoBaseDownload
@@ -569,31 +568,16 @@ def leer_archivo(user_id: str, nombre: str, max_lineas: int = 100) -> dict:
 
 # ---------- Captura de citas ----------
 
-def _fuente():
-    """Intenta cargar una fuente monoespaciada legible."""
-    rutas_fuente = [
-        "/usr/share/fonts/truetype/dejavu/DejaVuSansMono.ttf",
-        "/usr/share/fonts/truetype/liberation/LiberationMono-Regular.ttf",
-        "/usr/share/fonts/truetype/ubuntu/UbuntuMono-R.ttf",
-        "/usr/share/fonts/TTF/DejaVuSansMono.ttf",
-    ]
-    for ruta in rutas_fuente:
-        if os.path.exists(ruta):
-            return ImageFont.truetype(ruta, 16)
-    return ImageFont.load_default()
-
-
 def _buscar_archivo_en_carpeta(service, folder_drive_id: str, nombre_archivo: str) -> dict | None:
     """Busca un archivo por nombre dentro de una carpeta (recursivo)."""
     archivos = _listar_archivos_recursivo(service, folder_drive_id)
-    # Buscar coincidencia exacta o parcial
     nombre_lower = nombre_archivo.lower()
+    # Coincidencia exacta
     for a in archivos:
-        # El nombre puede incluir prefijo de subcarpeta (ej: "FIRMAS/contrato.pdf")
         base = a["name"].rsplit("/", 1)[-1] if "/" in a["name"] else a["name"]
         if base.lower() == nombre_lower or a["name"].lower() == nombre_lower:
             return a
-    # Buscar por coincidencia parcial
+    # Coincidencia parcial
     for a in archivos:
         base = a["name"].rsplit("/", 1)[-1] if "/" in a["name"] else a["name"]
         if nombre_lower in base.lower() or nombre_lower in a["name"].lower():
@@ -601,23 +585,27 @@ def _buscar_archivo_en_carpeta(service, folder_drive_id: str, nombre_archivo: st
     return None
 
 
-def _captura_pdf_pagina(data: bytes, texto_cita: str) -> Image.Image | None:
-    """Renderiza la pagina del PDF que contiene el texto citado."""
+def _renderizar_archivo(data: bytes, filetype: str, texto_cita: str = "") -> Image.Image:
+    """Renderiza cualquier archivo soportado por PyMuPDF como imagen real.
+
+    PyMuPDF soporta PDF, XLSX, DOCX, entre otros.
+    Para archivos multi-pagina, busca la pagina con el texto citado.
+    """
     import fitz
-    doc = fitz.open(stream=data, filetype="pdf")
+    doc = fitz.open(stream=data, filetype=filetype)
+
+    # Buscar la pagina que mejor coincide con el texto citado
     mejor_pagina = 0
-    mejor_score = 0
+    if texto_cita and len(doc) > 1:
+        mejor_score = 0
+        palabras_cita = set(texto_cita.lower().split()[:20])
+        for i, pagina in enumerate(doc):
+            texto_pag = pagina.get_text().lower()
+            coincidencias = sum(1 for p in palabras_cita if p in texto_pag)
+            if coincidencias > mejor_score:
+                mejor_score = coincidencias
+                mejor_pagina = i
 
-    # Buscar la pagina que mas coincide con el texto citado
-    palabras_cita = set(texto_cita.lower().split()[:20])
-    for i, pagina in enumerate(doc):
-        texto_pag = pagina.get_text().lower()
-        coincidencias = sum(1 for p in palabras_cita if p in texto_pag)
-        if coincidencias > mejor_score:
-            mejor_score = coincidencias
-            mejor_pagina = i
-
-    # Renderizar a imagen con buena resolución
     pagina = doc[mejor_pagina]
     mat = fitz.Matrix(2.0, 2.0)  # 2x zoom para buena calidad
     pix = pagina.get_pixmap(matrix=mat)
@@ -626,69 +614,51 @@ def _captura_pdf_pagina(data: bytes, texto_cita: str) -> Image.Image | None:
     return img
 
 
-def _captura_xlsx_tabla(data: bytes, texto_cita: str, max_filas: int = 30) -> Image.Image:
-    """Renderiza datos de XLSX como imagen de tabla limpia."""
-    import openpyxl
-    wb = openpyxl.load_workbook(io.BytesIO(data), read_only=True, data_only=True)
-    ws = wb[wb.sheetnames[0]]
+def _convertir_a_pdf_con_libreoffice(data: bytes, extension: str) -> bytes | None:
+    """Convierte un archivo (XLSX, DOCX, etc.) a PDF usando LibreOffice headless.
 
-    filas = []
-    for row in ws.iter_rows(values_only=True):
-        celdas = [str(c) if c is not None else "" for c in row]
-        if any(c.strip() for c in celdas):
-            filas.append(celdas)
-        if len(filas) >= max_filas:
-            break
-    wb.close()
+    Retorna los bytes del PDF generado, o None si LibreOffice no esta disponible.
+    """
+    import subprocess
+    import tempfile
+    import shutil
 
-    if not filas:
-        filas = [["(sin datos)"]]
+    soffice = shutil.which("soffice") or shutil.which("libreoffice")
+    if not soffice:
+        return None
 
-    fuente = _fuente()
-    margen = 20
-    padding_celda = 8
-    alto_fila = 24
-    dummy_img = Image.new("RGB", (1, 1))
-    dummy_draw = ImageDraw.Draw(dummy_img)
+    with tempfile.TemporaryDirectory() as tmpdir:
+        input_path = Path(tmpdir) / f"input{extension}"
+        input_path.write_bytes(data)
 
-    # Calcular ancho de columnas
-    num_cols = max(len(f) for f in filas)
-    anchos_col = [0] * num_cols
-    for fila in filas:
-        for j, celda in enumerate(fila):
-            bbox = dummy_draw.textbbox((0, 0), celda[:40], font=fuente)
-            ancho = bbox[2] - bbox[0] + padding_celda * 2
-            if j < num_cols:
-                anchos_col[j] = max(anchos_col[j], min(ancho, 250))
+        try:
+            subprocess.run(
+                [soffice, "--headless", "--convert-to", "pdf", "--outdir", tmpdir, str(input_path)],
+                capture_output=True, timeout=30,
+            )
+        except (subprocess.TimeoutExpired, FileNotFoundError):
+            return None
 
-    ancho_total = margen * 2 + sum(anchos_col) + num_cols
-    alto_total = margen * 2 + len(filas) * alto_fila + len(filas) + 30
+        pdf_path = Path(tmpdir) / "input.pdf"
+        if pdf_path.exists():
+            return pdf_path.read_bytes()
+    return None
 
-    img = Image.new("RGB", (ancho_total, alto_total), (255, 255, 255))
-    draw = ImageDraw.Draw(img)
 
-    y = margen
-    for i, fila in enumerate(filas):
-        x = margen
-        color_fondo_fila = (240, 240, 245) if i == 0 else ((250, 250, 250) if i % 2 == 0 else (255, 255, 255))
-        draw.rectangle([margen, y, ancho_total - margen, y + alto_fila], fill=color_fondo_fila)
+def _es_pdf(nombre: str, mime_type: str) -> bool:
+    ext = Path(nombre).suffix.lower() if nombre else ""
+    return ext == ".pdf" or mime_type == "application/pdf"
 
-        for j, celda in enumerate(fila):
-            if j >= num_cols:
-                break
-            texto = celda[:40]
-            color_texto = (30, 30, 30) if i > 0 else (10, 10, 80)
-            draw.text((x + padding_celda, y + 4), texto, fill=color_texto, font=fuente)
-            x += anchos_col[j] + 1
 
-        # Linea horizontal
-        draw.line([(margen, y + alto_fila), (ancho_total - margen, y + alto_fila)], fill=(200, 200, 200))
-        y += alto_fila + 1
-
-    # Borde exterior
-    draw.rectangle([margen - 1, margen - 1, ancho_total - margen, y], outline=(150, 150, 150), width=1)
-
-    return img
+def _extension_archivo(nombre: str, mime_type: str) -> str:
+    ext = Path(nombre).suffix.lower() if nombre else ""
+    if ext:
+        return ext
+    if "spreadsheet" in mime_type:
+        return ".xlsx"
+    if "document" in mime_type:
+        return ".docx"
+    return ".bin"
 
 
 def generar_captura(
@@ -697,7 +667,7 @@ def generar_captura(
     texto_cita: str,
     contexto: str = "",
 ) -> dict:
-    """Genera una captura real del archivo fuente (PDF renderizado o tabla XLSX)."""
+    """Genera una captura renderizando el archivo real desde Drive con PyMuPDF."""
     capturas_dir = _capturas_dir(user_id)
     capturas_dir.mkdir(parents=True, exist_ok=True)
 
@@ -706,12 +676,14 @@ def generar_captura(
     nombre_img = f"cita_{nombre_sanitizado}_{ts}.png"
     ruta_img = capturas_dir / nombre_img
 
-    # Intentar obtener el archivo real de Drive para renderizarlo
     try:
         registro = _cargar_registro(user_id)
         service = _get_drive_service()
-        img = None
+        data = None
+        file_name = nombre_archivo
+        mime_type = ""
 
+        # Buscar el archivo en el registro
         for entrada in registro:
             if entrada["tipo"] == "carpeta":
                 drive_id = entrada.get("drive_id", "")
@@ -719,83 +691,53 @@ def generar_captura(
                     continue
                 arch = _buscar_archivo_en_carpeta(service, drive_id, nombre_archivo)
                 if arch:
-                    data, tipo_eff = _obtener_bytes_archivo(arch["id"], arch.get("mimeType", ""))
-                    if tipo_eff == "pdf":
-                        img = _captura_pdf_pagina(data, texto_cita)
-                    elif tipo_eff == "xlsx":
-                        img = _captura_xlsx_tabla(data, texto_cita)
+                    data, _ = _obtener_bytes_archivo(arch["id"], arch.get("mimeType", ""))
+                    file_name = arch["name"].rsplit("/", 1)[-1] if "/" in arch["name"] else arch["name"]
+                    mime_type = arch.get("mimeType", "")
                     break
             elif entrada["nombre"].lower() == nombre_archivo.lower():
                 drive_id = entrada.get("drive_id", "")
                 if not drive_id:
                     continue
                 meta = service.files().get(
-                    fileId=drive_id, fields="mimeType", supportsAllDrives=True
+                    fileId=drive_id, fields="name,mimeType", supportsAllDrives=True
                 ).execute()
-                data, tipo_eff = _obtener_bytes_archivo(drive_id, meta.get("mimeType", ""))
-                if tipo_eff == "pdf":
-                    img = _captura_pdf_pagina(data, texto_cita)
-                elif tipo_eff == "xlsx":
-                    img = _captura_xlsx_tabla(data, texto_cita)
+                data, _ = _obtener_bytes_archivo(drive_id, meta.get("mimeType", ""))
+                file_name = meta.get("name", nombre_archivo)
+                mime_type = meta.get("mimeType", "")
                 break
 
-        if img:
-            img.save(str(ruta_img), "PNG")
-            return {
-                "ok": True,
-                "ruta_imagen": str(ruta_img),
-                "nombre_archivo": nombre_archivo,
-                "ancho": img.width,
-                "alto": img.height,
-            }
-    except Exception as e:
-        logger.warning("No se pudo generar captura real de %s: %s", nombre_archivo, e)
+        if not data:
+            return {"ok": False, "error": f"No se encontro '{nombre_archivo}' para generar captura."}
 
-    # Fallback: generar imagen de texto si no se pudo renderizar el archivo real
-    fuente = _fuente()
-    margen = 30
-    ancho_max_chars = 80
-
-    lineas = []
-    lineas.append(f"ARCHIVO: {nombre_archivo}")
-    lineas.append("=" * min(len(f"ARCHIVO: {nombre_archivo}"), ancho_max_chars))
-    if contexto:
-        lineas.append(f"Contexto: {contexto}")
-        lineas.append("")
-    lineas.append("CONTENIDO CITADO:")
-    lineas.append("-" * 40)
-    for linea_original in texto_cita.splitlines():
-        wrapped = textwrap.wrap(linea_original, width=ancho_max_chars) or [""]
-        lineas.extend(wrapped)
-    lineas.append("-" * 40)
-    lineas.append(f"Fuente: {nombre_archivo} | Captura generada por Syn")
-
-    alto_linea = 22
-    alto_total = margen * 2 + len(lineas) * alto_linea + 20
-    ancho_total = margen * 2 + ancho_max_chars * 10
-
-    img = Image.new("RGB", (ancho_total, alto_total), (30, 30, 35))
-    draw = ImageDraw.Draw(img)
-    draw.rectangle([5, 5, ancho_total - 6, alto_total - 6], outline=(60, 60, 70), width=2)
-
-    y = margen
-    for i, linea in enumerate(lineas):
-        if i == 0:
-            color = (100, 180, 255)
-        elif linea.startswith("CONTENIDO CITADO"):
-            color = (180, 255, 180)
-        elif linea.startswith("Fuente:"):
-            color = (100, 180, 255)
+        if _es_pdf(file_name, mime_type):
+            # PDF: renderizar directamente con PyMuPDF
+            img = _renderizar_archivo(data, "pdf", texto_cita)
         else:
-            color = (220, 220, 220)
-        draw.text((margen, y), linea, fill=color, font=fuente)
-        y += alto_linea
+            # XLSX, DOCX, etc: convertir a PDF con LibreOffice, luego renderizar
+            ext = _extension_archivo(file_name, mime_type)
+            pdf_data = _convertir_a_pdf_con_libreoffice(data, ext)
+            if not pdf_data:
+                return {
+                    "ok": False,
+                    "error": (
+                        f"No se pudo generar captura de '{nombre_archivo}'. "
+                        "LibreOffice no esta disponible para convertir el archivo. "
+                        "Los datos citados en el mensaje vienen directamente del archivo original."
+                    ),
+                }
+            img = _renderizar_archivo(pdf_data, "pdf", texto_cita)
 
-    img.save(str(ruta_img), "PNG")
-    return {
-        "ok": True,
-        "ruta_imagen": str(ruta_img),
-        "nombre_archivo": nombre_archivo,
-        "ancho": ancho_total,
-        "alto": alto_total,
-    }
+        img.save(str(ruta_img), "PNG")
+
+        return {
+            "ok": True,
+            "ruta_imagen": str(ruta_img),
+            "nombre_archivo": nombre_archivo,
+            "ancho": img.width,
+            "alto": img.height,
+        }
+
+    except Exception as e:
+        logger.warning("Error generando captura de %s: %s", nombre_archivo, e)
+        return {"ok": False, "error": f"No se pudo generar captura de '{nombre_archivo}': {e}"}
