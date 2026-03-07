@@ -259,8 +259,25 @@ async def ayuda(update: Update, context: ContextTypes.DEFAULT_TYPE):
     )
 
 
+async def _post_init(application):
+    """Registra los comandos en el menu de Telegram."""
+    from telegram import BotCommand
+    await application.bot.set_my_commands([
+        BotCommand("inicio", "Mensaje de bienvenida"),
+        BotCommand("estado", "Estado del sistema"),
+        BotCommand("archivos", "Ver archivos guardados"),
+        BotCommand("memorias", "Ver memorias guardadas"),
+        BotCommand("recordatorios", "Ver recordatorios programados"),
+        BotCommand("metas", "Ver metas activas"),
+        BotCommand("logs", "Ver actividad del dia"),
+        BotCommand("citas", "Activar/desactivar modo citas"),
+        BotCommand("limpiar", "Limpiar historial"),
+        BotCommand("ayuda", "Ver comandos"),
+    ])
+
+
 def run_bot():
-    app = Application.builder().token(settings.TELEGRAM_TOKEN).build()
+    app = Application.builder().token(settings.TELEGRAM_TOKEN).post_init(_post_init).build()
 
     app.add_handler(CommandHandler("start", inicio))
     app.add_handler(CommandHandler("inicio", inicio))

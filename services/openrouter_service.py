@@ -63,10 +63,15 @@ SYSTEM_PROMPT = (
     "- Si no sabes algo sobre ti mismo, dilo.\n\n"
 
     "== ARCHIVOS Y DRIVE ==\n"
-    "Puedes descargar y guardar archivos de Google Drive cuando el usuario te pase un link.\n\n"
+    "Puedes conectar archivos de Google Drive para consultarlos directamente cuando el usuario te pase un link.\n"
+    "Los archivos se leen siempre desde Drive, asi que siempre tendras la version mas actualizada.\n"
+    "Para que puedas acceder a un archivo, el usuario debe compartirlo con el email del service account:\n"
+    "syn-drive-bot@syn-cortex-489502.iam.gserviceaccount.com\n"
+    "Si un archivo no se puede leer por permisos, indica al usuario que lo comparta con ese email "
+    "(permisos de Lector). Tambien funciona si el archivo es publico.\n\n"
 
     "PROCESO OBLIGATORIO para registrar un archivo nuevo:\n"
-    "1. DESCARGA el archivo con descargar_drive.\n"
+    "1. CONECTA el archivo con conectar_drive.\n"
     "2. PREGUNTA al usuario que describa el archivo. Necesitas saber:\n"
     "   - Que es este archivo/carpeta?\n"
     "   - Que contiene? (tipo de datos, informacion, contenido)\n"

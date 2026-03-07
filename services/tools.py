@@ -18,9 +18,9 @@ TOOLS = [
     {
         "type": "function",
         "function": {
-            "name": "descargar_drive",
+            "name": "conectar_drive",
             "description": (
-                "Descarga un archivo o carpeta publica de Google Drive y lo guarda localmente. "
+                "Conecta un archivo o carpeta de Google Drive para consulta directa, sin descargarlo. "
                 "Usa esta herramienta cuando el usuario comparta un link de Google Drive."
             ),
             "parameters": {
@@ -28,7 +28,7 @@ TOOLS = [
                 "properties": {
                     "url": {
                         "type": "string",
-                        "description": "Link de Google Drive (archivo o carpeta publica)",
+                        "description": "Link de Google Drive (archivo o carpeta)",
                     },
                     "nombre": {
                         "type": "string",
@@ -44,8 +44,8 @@ TOOLS = [
         "function": {
             "name": "registrar_archivo",
             "description": (
-                "Registra un archivo descargado en el directorio con su descripcion detallada. "
-                "Usa esta herramienta SIEMPRE despues de descargar algo de Drive para guardar "
+                "Registra un archivo conectado en el directorio con su descripcion detallada. "
+                "Usa esta herramienta SIEMPRE despues de conectar algo de Drive para guardar "
                 "la descripcion que explica que contiene el archivo, para que sirve, "
                 "que tipo de contenido tiene, y cualquier dato relevante."
             ),
@@ -55,10 +55,6 @@ TOOLS = [
                     "nombre": {
                         "type": "string",
                         "description": "Nombre del recurso",
-                    },
-                    "ruta": {
-                        "type": "string",
-                        "description": "Ruta local donde se guardo",
                     },
                     "descripcion": {
                         "type": "string",
@@ -81,10 +77,10 @@ TOOLS = [
                     "archivos": {
                         "type": "array",
                         "items": {"type": "string"},
-                        "description": "Lista de nombres de archivos descargados",
+                        "description": "Lista de nombres de archivos",
                     },
                 },
-                "required": ["nombre", "ruta", "descripcion", "url_drive", "tipo", "archivos"],
+                "required": ["nombre", "descripcion", "url_drive", "tipo", "archivos"],
             },
         },
     },
@@ -708,14 +704,14 @@ def ejecutar_herramienta(nombre: str, argumentos: dict, user_id: str = "", chat_
     argumentos["user_id"] = user_id
     argumentos["chat_id"] = chat_id
 
-    if nombre == "descargar_drive":
-        resultado = drive_service.descargar_drive(user_id, argumentos["url"], argumentos.get("nombre"))
+    if nombre == "conectar_drive":
+        resultado = drive_service.conectar_drive(user_id, argumentos["url"], argumentos.get("nombre"))
         if resultado["ok"]:
             return json.dumps({
-                "estado": "descargado",
-                "ruta": resultado["ruta"],
+                "estado": "conectado",
                 "archivos": resultado["archivos"],
                 "tipo": resultado["tipo"],
+                "nombre_sugerido": resultado.get("nombre_sugerido", ""),
                 "nota": "Ahora usa registrar_archivo para guardar este recurso con una descripcion detallada.",
             }, ensure_ascii=False)
         return json.dumps({"estado": "error", "error": resultado["error"]}, ensure_ascii=False)
@@ -724,7 +720,6 @@ def ejecutar_herramienta(nombre: str, argumentos: dict, user_id: str = "", chat_
         return drive_service.agregar_al_registro(
             user_id,
             argumentos["nombre"],
-            argumentos["ruta"],
             argumentos["descripcion"],
             argumentos["url_drive"],
             argumentos["tipo"],
