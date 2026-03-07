@@ -112,11 +112,17 @@ def _detectar_tipo(nombre: str, mime_type: str) -> str:
     return "texto"
 
 
+def _es_carpeta(mime_type: str) -> bool:
+    return mime_type == "application/vnd.google-apps.folder"
+
+
 def _obtener_bytes_archivo(file_id: str, mime_type: str) -> tuple[bytes, str]:
     """Obtiene bytes de un archivo, exportando si es nativo de Google.
 
-    Returns (data, tipo_efectivo).
+    Returns (data, tipo_efectivo). Raises ValueError si es carpeta.
     """
+    if _es_carpeta(mime_type):
+        raise ValueError("Es una carpeta, no un archivo descargable")
     if mime_type == "application/vnd.google-apps.spreadsheet":
         data = _exportar_bytes(file_id, "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
         return data, "xlsx"
@@ -125,6 +131,33 @@ def _obtener_bytes_archivo(file_id: str, mime_type: str) -> tuple[bytes, str]:
         return data, "pdf"
     data = _descargar_bytes(file_id)
     return data, _detectar_tipo("", mime_type)
+
+
+def _listar_archivos_recursivo(service, folder_id: str, max_total: int = 50) -> list[dict]:
+    """Lista archivos dentro de una carpeta, entrando recursivamente en subcarpetas."""
+    resultado = []
+
+    resp = service.files().list(
+        q=f"'{folder_id}' in parents and trashed=false",
+        fields="files(id,name,mimeType)",
+        supportsAllDrives=True,
+        includeItemsFromAllDrives=True,
+        pageSize=100,
+    ).execute()
+
+    for f in resp.get("files", []):
+        if len(resultado) >= max_total:
+            break
+        if _es_carpeta(f["mimeType"]):
+            sub = _listar_archivos_recursivo(service, f["id"], max_total - len(resultado))
+            # Prefijar con nombre de subcarpeta para claridad
+            for sf in sub:
+                sf["name"] = f"{f['name']}/{sf['name']}"
+            resultado.extend(sub)
+        else:
+            resultado.append(f)
+
+    return resultado
 
 
 def _parsear_pdf(data: bytes, max_paginas: int = 10) -> dict:
@@ -272,9 +305,17 @@ def conectar_drive(user_id: str, url: str, nombre: str | None = None) -> dict:
     except Exception as e:
         error_str = str(e)
         if "404" in error_str or "notFound" in error_str:
-            return {"ok": False, "error": "Archivo no encontrado. Verifica que este compartido con el service account."}
+            return {"ok": False, "error": (
+                "Error 404: Archivo no encontrado en Drive. "
+                "Puede que el link este mal, el archivo fue eliminado, o no esta compartido. "
+                "El usuario debe compartirlo con syn-drive-bot@syn-cortex-489502.iam.gserviceaccount.com"
+            )}
         if "403" in error_str or "forbidden" in error_str:
-            return {"ok": False, "error": "Sin permisos. Comparte el archivo con el email del service account."}
+            return {"ok": False, "error": (
+                "Error 403: Sin permisos de acceso. "
+                "El usuario debe compartir el archivo/carpeta con syn-drive-bot@syn-cortex-489502.iam.gserviceaccount.com "
+                "con permisos de Lector. Si ya lo hizo, esperar unos minutos y reintentar."
+            )}
         return {"ok": False, "error": f"Error al conectar con Drive: {e}"}
 
 
@@ -336,18 +377,12 @@ def listar_registro(user_id: str) -> str:
         try:
             service = _get_drive_service()
             if entrada["tipo"] == "carpeta" and drive_id:
-                resp = service.files().list(
-                    q=f"'{drive_id}' in parents and trashed=false",
-                    fields="files(name)",
-                    supportsAllDrives=True,
-                    includeItemsFromAllDrives=True,
-                    pageSize=100,
-                ).execute()
-                archivos_actuales = [f["name"] for f in resp.get("files", [])]
+                archivos_actuales = _listar_archivos_recursivo(service, drive_id)
+                nombres = [f["name"] for f in archivos_actuales]
                 info_extra = (
-                    f"   Archivos actuales: {len(archivos_actuales)} — "
-                    f"{', '.join(archivos_actuales[:10])}"
-                    f"{'...' if len(archivos_actuales) > 10 else ''}"
+                    f"   Archivos actuales: {len(nombres)} — "
+                    f"{', '.join(nombres[:10])}"
+                    f"{'...' if len(nombres) > 10 else ''}"
                 )
             elif drive_id:
                 meta = service.files().get(
@@ -444,24 +479,18 @@ def leer_archivo(user_id: str, nombre: str, max_lineas: int = 100) -> dict:
         service = _get_drive_service()
 
         if entrada["tipo"] == "carpeta":
-            # Consulta dinamica: siempre lista archivos actuales de la carpeta
-            resp = service.files().list(
-                q=f"'{drive_id}' in parents and trashed=false",
-                fields="files(id,name,mimeType)",
-                supportsAllDrives=True,
-                includeItemsFromAllDrives=True,
-                pageSize=100,
-            ).execute()
-            archivos_drive = resp.get("files", [])
+            # Listar archivos recursivamente (entra en subcarpetas)
+            archivos_drive = _listar_archivos_recursivo(service, drive_id)
 
             archivos_contenido = {}
-            for arch in archivos_drive[:5]:
+            errores = []
+            for arch in archivos_drive:
                 try:
                     data, tipo_eff = _obtener_bytes_archivo(
                         arch["id"], arch.get("mimeType", "")
                     )
                     if len(data) > 2_000_000:
-                        archivos_contenido[arch["name"]] = {"contenido": "[Archivo muy grande, omitido]"}
+                        archivos_contenido[arch["name"]] = {"contenido": "[Archivo muy grande (>2MB), omitido]"}
                         continue
 
                     if tipo_eff == "pdf":
@@ -472,16 +501,26 @@ def leer_archivo(user_id: str, nombre: str, max_lineas: int = 100) -> dict:
                         parsed = _parsear_texto(data, max_lineas)
                     archivos_contenido[arch["name"]] = parsed
                 except Exception as ex:
-                    archivos_contenido[arch["name"]] = {"contenido": f"[Error al leer: {ex}]"}
+                    msg_error = f"Error leyendo '{arch['name']}': {ex}"
+                    errores.append(msg_error)
+                    archivos_contenido[arch["name"]] = {"contenido": f"[{msg_error}]"}
 
-            return {
+            resultado = {
                 "ok": True,
                 "nombre": entrada["nombre"],
                 "tipo": "carpeta",
                 "archivos": archivos_contenido,
                 "total_archivos": len(archivos_drive),
+                "archivos_leidos": len(archivos_drive) - len(errores),
                 "descripcion": entrada["descripcion"],
             }
+            if errores:
+                resultado["errores"] = errores
+                resultado["nota_errores"] = (
+                    f"ATENCION: {len(errores)} archivo(s) no se pudieron leer. "
+                    "Muestra estos errores al usuario para que pueda reportarlos."
+                )
+            return resultado
 
         # Archivo individual
         meta = service.files().get(
@@ -528,7 +567,7 @@ def leer_archivo(user_id: str, nombre: str, max_lineas: int = 100) -> dict:
         return {"ok": False, "error": f"Error al leer desde Drive: {e}"}
 
 
-# ---------- Captura de citas (sin cambios) ----------
+# ---------- Captura de citas ----------
 
 def _fuente():
     """Intenta cargar una fuente monoespaciada legible."""
@@ -544,26 +583,178 @@ def _fuente():
     return ImageFont.load_default()
 
 
+def _buscar_archivo_en_carpeta(service, folder_drive_id: str, nombre_archivo: str) -> dict | None:
+    """Busca un archivo por nombre dentro de una carpeta (recursivo)."""
+    archivos = _listar_archivos_recursivo(service, folder_drive_id)
+    # Buscar coincidencia exacta o parcial
+    nombre_lower = nombre_archivo.lower()
+    for a in archivos:
+        # El nombre puede incluir prefijo de subcarpeta (ej: "FIRMAS/contrato.pdf")
+        base = a["name"].rsplit("/", 1)[-1] if "/" in a["name"] else a["name"]
+        if base.lower() == nombre_lower or a["name"].lower() == nombre_lower:
+            return a
+    # Buscar por coincidencia parcial
+    for a in archivos:
+        base = a["name"].rsplit("/", 1)[-1] if "/" in a["name"] else a["name"]
+        if nombre_lower in base.lower() or nombre_lower in a["name"].lower():
+            return a
+    return None
+
+
+def _captura_pdf_pagina(data: bytes, texto_cita: str) -> Image.Image | None:
+    """Renderiza la pagina del PDF que contiene el texto citado."""
+    import fitz
+    doc = fitz.open(stream=data, filetype="pdf")
+    mejor_pagina = 0
+    mejor_score = 0
+
+    # Buscar la pagina que mas coincide con el texto citado
+    palabras_cita = set(texto_cita.lower().split()[:20])
+    for i, pagina in enumerate(doc):
+        texto_pag = pagina.get_text().lower()
+        coincidencias = sum(1 for p in palabras_cita if p in texto_pag)
+        if coincidencias > mejor_score:
+            mejor_score = coincidencias
+            mejor_pagina = i
+
+    # Renderizar a imagen con buena resolución
+    pagina = doc[mejor_pagina]
+    mat = fitz.Matrix(2.0, 2.0)  # 2x zoom para buena calidad
+    pix = pagina.get_pixmap(matrix=mat)
+    img = Image.frombytes("RGB", (pix.width, pix.height), pix.samples)
+    doc.close()
+    return img
+
+
+def _captura_xlsx_tabla(data: bytes, texto_cita: str, max_filas: int = 30) -> Image.Image:
+    """Renderiza datos de XLSX como imagen de tabla limpia."""
+    import openpyxl
+    wb = openpyxl.load_workbook(io.BytesIO(data), read_only=True, data_only=True)
+    ws = wb[wb.sheetnames[0]]
+
+    filas = []
+    for row in ws.iter_rows(values_only=True):
+        celdas = [str(c) if c is not None else "" for c in row]
+        if any(c.strip() for c in celdas):
+            filas.append(celdas)
+        if len(filas) >= max_filas:
+            break
+    wb.close()
+
+    if not filas:
+        filas = [["(sin datos)"]]
+
+    fuente = _fuente()
+    margen = 20
+    padding_celda = 8
+    alto_fila = 24
+    dummy_img = Image.new("RGB", (1, 1))
+    dummy_draw = ImageDraw.Draw(dummy_img)
+
+    # Calcular ancho de columnas
+    num_cols = max(len(f) for f in filas)
+    anchos_col = [0] * num_cols
+    for fila in filas:
+        for j, celda in enumerate(fila):
+            bbox = dummy_draw.textbbox((0, 0), celda[:40], font=fuente)
+            ancho = bbox[2] - bbox[0] + padding_celda * 2
+            if j < num_cols:
+                anchos_col[j] = max(anchos_col[j], min(ancho, 250))
+
+    ancho_total = margen * 2 + sum(anchos_col) + num_cols
+    alto_total = margen * 2 + len(filas) * alto_fila + len(filas) + 30
+
+    img = Image.new("RGB", (ancho_total, alto_total), (255, 255, 255))
+    draw = ImageDraw.Draw(img)
+
+    y = margen
+    for i, fila in enumerate(filas):
+        x = margen
+        color_fondo_fila = (240, 240, 245) if i == 0 else ((250, 250, 250) if i % 2 == 0 else (255, 255, 255))
+        draw.rectangle([margen, y, ancho_total - margen, y + alto_fila], fill=color_fondo_fila)
+
+        for j, celda in enumerate(fila):
+            if j >= num_cols:
+                break
+            texto = celda[:40]
+            color_texto = (30, 30, 30) if i > 0 else (10, 10, 80)
+            draw.text((x + padding_celda, y + 4), texto, fill=color_texto, font=fuente)
+            x += anchos_col[j] + 1
+
+        # Linea horizontal
+        draw.line([(margen, y + alto_fila), (ancho_total - margen, y + alto_fila)], fill=(200, 200, 200))
+        y += alto_fila + 1
+
+    # Borde exterior
+    draw.rectangle([margen - 1, margen - 1, ancho_total - margen, y], outline=(150, 150, 150), width=1)
+
+    return img
+
+
 def generar_captura(
     user_id: str,
     nombre_archivo: str,
     texto_cita: str,
     contexto: str = "",
 ) -> dict:
-    """Genera una imagen/captura del texto citado de un archivo."""
+    """Genera una captura real del archivo fuente (PDF renderizado o tabla XLSX)."""
     capturas_dir = _capturas_dir(user_id)
     capturas_dir.mkdir(parents=True, exist_ok=True)
 
-    fuente = _fuente()
-    fuente_titulo = _fuente()
+    nombre_sanitizado = re.sub(r'[^\w.-]', '_', nombre_archivo)
+    ts = ahora().strftime("%Y%m%d_%H%M%S_%f")
+    nombre_img = f"cita_{nombre_sanitizado}_{ts}.png"
+    ruta_img = capturas_dir / nombre_img
 
+    # Intentar obtener el archivo real de Drive para renderizarlo
+    try:
+        registro = _cargar_registro(user_id)
+        service = _get_drive_service()
+        img = None
+
+        for entrada in registro:
+            if entrada["tipo"] == "carpeta":
+                drive_id = entrada.get("drive_id", "")
+                if not drive_id:
+                    continue
+                arch = _buscar_archivo_en_carpeta(service, drive_id, nombre_archivo)
+                if arch:
+                    data, tipo_eff = _obtener_bytes_archivo(arch["id"], arch.get("mimeType", ""))
+                    if tipo_eff == "pdf":
+                        img = _captura_pdf_pagina(data, texto_cita)
+                    elif tipo_eff == "xlsx":
+                        img = _captura_xlsx_tabla(data, texto_cita)
+                    break
+            elif entrada["nombre"].lower() == nombre_archivo.lower():
+                drive_id = entrada.get("drive_id", "")
+                if not drive_id:
+                    continue
+                meta = service.files().get(
+                    fileId=drive_id, fields="mimeType", supportsAllDrives=True
+                ).execute()
+                data, tipo_eff = _obtener_bytes_archivo(drive_id, meta.get("mimeType", ""))
+                if tipo_eff == "pdf":
+                    img = _captura_pdf_pagina(data, texto_cita)
+                elif tipo_eff == "xlsx":
+                    img = _captura_xlsx_tabla(data, texto_cita)
+                break
+
+        if img:
+            img.save(str(ruta_img), "PNG")
+            return {
+                "ok": True,
+                "ruta_imagen": str(ruta_img),
+                "nombre_archivo": nombre_archivo,
+                "ancho": img.width,
+                "alto": img.height,
+            }
+    except Exception as e:
+        logger.warning("No se pudo generar captura real de %s: %s", nombre_archivo, e)
+
+    # Fallback: generar imagen de texto si no se pudo renderizar el archivo real
+    fuente = _fuente()
     margen = 30
     ancho_max_chars = 80
-    color_fondo = (30, 30, 35)
-    color_texto = (220, 220, 220)
-    color_titulo = (100, 180, 255)
-    color_borde = (60, 60, 70)
-    color_cita = (180, 255, 180)
 
     lineas = []
     lineas.append(f"ARCHIVO: {nombre_archivo}")
@@ -571,7 +762,6 @@ def generar_captura(
     if contexto:
         lineas.append(f"Contexto: {contexto}")
         lineas.append("")
-
     lineas.append("CONTENIDO CITADO:")
     lineas.append("-" * 40)
     for linea_original in texto_cita.splitlines():
@@ -584,42 +774,24 @@ def generar_captura(
     alto_total = margen * 2 + len(lineas) * alto_linea + 20
     ancho_total = margen * 2 + ancho_max_chars * 10
 
-    img = Image.new("RGB", (ancho_total, alto_total), color_fondo)
+    img = Image.new("RGB", (ancho_total, alto_total), (30, 30, 35))
     draw = ImageDraw.Draw(img)
-
-    draw.rectangle(
-        [5, 5, ancho_total - 6, alto_total - 6],
-        outline=color_borde, width=2
-    )
+    draw.rectangle([5, 5, ancho_total - 6, alto_total - 6], outline=(60, 60, 70), width=2)
 
     y = margen
     for i, linea in enumerate(lineas):
         if i == 0:
-            color = color_titulo
+            color = (100, 180, 255)
         elif linea.startswith("CONTENIDO CITADO"):
-            color = color_cita
+            color = (180, 255, 180)
         elif linea.startswith("Fuente:"):
-            color = color_titulo
+            color = (100, 180, 255)
         else:
-            color = color_texto
+            color = (220, 220, 220)
         draw.text((margen, y), linea, fill=color, font=fuente)
         y += alto_linea
 
-    nombre_sanitizado = re.sub(r'[^\w.-]', '_', nombre_archivo)
-    ts = ahora().strftime("%Y%m%d_%H%M%S_%f")
-    nombre_img = f"cita_{nombre_sanitizado}_{ts}.png"
-    ruta_img = capturas_dir / nombre_img
     img.save(str(ruta_img), "PNG")
-
-    try:
-        img_check = Image.open(str(ruta_img))
-        w, h = img_check.size
-        if w < 100 or h < 50:
-            return {"ok": False, "error": "La captura generada es demasiado pequena."}
-        img_check.close()
-    except Exception as e:
-        return {"ok": False, "error": f"Error verificando la captura: {e}"}
-
     return {
         "ok": True,
         "ruta_imagen": str(ruta_img),

@@ -52,11 +52,18 @@ async def _enviar_respuesta(update: Update, resultado: dict):
     texto = resultado["texto"]
     imagenes = resultado.get("imagenes", [])
 
+    async def _enviar_texto(t: str):
+        try:
+            await update.message.reply_text(t, parse_mode="HTML")
+        except Exception:
+            # Si falla HTML (tags mal cerrados, etc), enviar sin formato
+            await update.message.reply_text(t)
+
     if len(texto) > 4096:
         for i in range(0, len(texto), 4096):
-            await update.message.reply_text(texto[i : i + 4096])
+            await _enviar_texto(texto[i : i + 4096])
     else:
-        await update.message.reply_text(texto)
+        await _enviar_texto(texto)
 
     for ruta_img in imagenes:
         try:
